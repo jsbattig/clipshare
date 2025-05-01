@@ -19,7 +19,9 @@
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "jszip": "^3.10.1"
+  },
   "devDependencies": {
     "nodemon": "^2.0.22"
   }

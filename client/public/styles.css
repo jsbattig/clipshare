@@ -242,23 +242,35 @@ button:hover {
   margin: 15px 0;
 }
 
+/* Modal Overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
 /* Drop Zone */
 #drop-zone {
-  position: absolute;
+  position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 80%;
-  height: 200px;
+  width: 60%;
+  height: 220px;
   border: 3px dashed var(--primary-color);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background: rgba(52, 152, 219, 0.1);
+  background: rgba(255, 255, 255, 0.95);
   transition: all 0.3s ease;
-  z-index: 100;
+  z-index: 1000;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
 }
 
 #drop-zone.drag-active {

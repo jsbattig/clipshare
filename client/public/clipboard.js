@@ -120,6 +120,7 @@ let lastContentOrigin = 'init'; // Track where content came from: 'local', 'remo
 let lastSyncAttemptTime = 0; // Track when we last tried to sync to avoid frequent checks
 let currentContentState = CONTENT_STATES.EMPTY; // Current type of content in clipboard
 let fileTransferInProgress = false; // Flag to track if a file transfer is in progress
+let droppedFiles = []; // Store dropped files at module scope
 const typingTimeout = 3000; // 3 seconds before resuming polling
 const syncGracePeriodDuration = 3000; // 3 seconds grace period after receiving updates (increased from 500ms)
 const minTimeBetweenSyncs = 2000; // Minimum time between sync attempts
@@ -317,7 +318,6 @@ function setupEventListeners() {
   const multiFileIndicator = document.getElementById('multi-file-indicator');
   const fileCountBadge = multiFileIndicator.querySelector('.file-count-badge');
   const createZipBtn = multiFileIndicator.querySelector('.create-zip-btn');
-  let droppedFiles = []; // Store multiple files
   
   // Close drop zone button
   dropCloseBtn.addEventListener('click', () => {
