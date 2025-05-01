@@ -283,14 +283,17 @@ function updateClipboardContent(sessionId, content, originClient) {
   // Generate content hash - only of the actual content, not metadata
   const contentHash = hashContent(newClipboard.type === 'text' ? newClipboard.content : newClipboard);
   
-  // Include OS info in the hash key if available to help prevent cross-OS ping-pong
-  const osInfo = newClipboard.clientInfo && newClipboard.clientInfo.os ? 
-    `_${newClipboard.clientInfo.os}` : '';
-  const browserInfo = newClipboard.clientInfo && newClipboard.clientInfo.name ? 
-    `_${newClipboard.clientInfo.name}` : '';
+  // Extract client environment info for logging/decisions
+  const clientOS = newClipboard.clientInfo && newClipboard.clientInfo.os ? 
+    newClipboard.clientInfo.os : 'unknown';
+  const clientBrowser = newClipboard.clientInfo && newClipboard.clientInfo.name ? 
+    newClipboard.clientInfo.name : 'unknown';
   
-  // Create a more specific hash key that includes client environment info
-  const hashKey = contentHash + osInfo + browserInfo;
+  // TWO-TIER APPROACH:
+  // 1. First hash key is just content (OS-agnostic)
+  // 2. Second hash includes OS/browser for more specific ping-pong detection
+  const contentOnlyHashKey = contentHash;
+  const fullHashKey = contentHash + `_${clientOS}_${clientBrowser}`;
   
   // Initialize session tracking properties if they don't exist
   if (!sessions[sessionId].contentHashes) {
@@ -305,32 +308,68 @@ function updateClipboardContent(sessionId, content, originClient) {
     sessions[sessionId].updateFrequency = [];
   }
   
-  // Check time-based constraints
+  // Define now for timestamp operations
   const now = Date.now();
   const timeSinceLastUpdate = now - sessions[sessionId].lastUpdateTime;
   
   // Debug logging for cross-OS scenarios
-  if (newClipboard.type === 'image' && newClipboard.clientInfo) {
-    console.log(`Image update from: ${newClipboard.clientInfo.name} on ${newClipboard.clientInfo.os || 'unknown OS'}`);
-    console.log(`Hash key: ${hashKey}`);
+  if (newClipboard.type === 'image') {
+    console.log(`Image update from: ${clientBrowser} on ${clientOS}`);
+    console.log(`Content hash: ${contentOnlyHashKey}`);
+    console.log(`Full hash: ${fullHashKey}`);
   }
   
-  // Check if we've seen this exact content hash recently
-  if (sessions[sessionId].contentHashes[hashKey]) {
-    const hashAge = now - sessions[sessionId].contentHashes[hashKey].timestamp;
+  // FIRST TIER: Check for identical content with different OS (legitimate cross-OS sync)
+  let isCrossOSSync = false;
+  
+  // Look for any matching content, regardless of OS
+  for (const [existingHash, hashData] of Object.entries(sessions[sessionId].contentHashes || {})) {
+    // Skip if this is exactly the same hash key (handled below)
+    if (existingHash === fullHashKey) continue;
     
-    // For images, use a longer detection window (5 seconds instead of 2)
-    const pingPongWindow = newClipboard.type === 'image' ? 5000 : 2000;
+    // If content part matches but OS/browser differ, this is a cross-OS sync
+    if (existingHash.startsWith(contentOnlyHashKey) && 
+        hashData.client !== originClient &&
+        // Check if the hash contains OS info (to compare new OS vs old OS)
+        existingHash.includes('_')) {
+      
+      // Extract the OS from the existing hash
+      const existingHashParts = existingHash.split('_');
+      if (existingHashParts.length >= 2) {
+        const existingOS = existingHashParts[existingHashParts.length - 2];
+        
+        // If OS differs, this is a legitimate cross-OS sync
+        if (existingOS !== clientOS) {
+          console.log(`Cross-OS sync detected: ${existingOS} → ${clientOS}`);
+          isCrossOSSync = true;
+          
+          // We always want to allow legitimate cross-OS syncs
+          // Continue to normal processing
+          break;
+        }
+      }
+    }
+  }
+  
+  // SECOND TIER: Check for potential ping-pong (same content, same OS, different browser/client)
+  // Only do this check if it's not a cross-OS sync
+  if (!isCrossOSSync && sessions[sessionId].contentHashes[fullHashKey]) {
+    const hashAge = now - sessions[sessionId].contentHashes[fullHashKey].timestamp;
+    
+    // For images, use a longer detection window (3 seconds instead of 2)
+    // But make it shorter than before to allow legitimate updates
+    const pingPongWindow = newClipboard.type === 'image' ? 3000 : 2000;
     
     // If identical content was updated very recently
     // AND from a different client (potential ping-pong)
     if (hashAge < pingPongWindow && 
-        sessions[sessionId].contentHashes[hashKey].client !== originClient) {
+        sessions[sessionId].contentHashes[fullHashKey].client !== originClient) {
       console.log(`Preventing ping-pong: duplicate ${newClipboard.type} content from different client`);
-      console.log(`Age: ${hashAge}ms, Origin: ${originClient} vs Previous: ${sessions[sessionId].contentHashes[hashKey].client}`);
+      console.log(`Age: ${hashAge}ms, Origin: ${originClient} vs Previous: ${sessions[sessionId].contentHashes[fullHashKey].client}`);
       return false;
     }
   }
+  
   
   // Track update frequency for throttling
   sessions[sessionId].updateFrequency.push(now);
@@ -356,13 +395,23 @@ function updateClipboardContent(sessionId, content, originClient) {
     }
   }
   
-  // Store hash with timestamp and additional info for future comparisons
-  sessions[sessionId].contentHashes[hashKey] = {
+  // Store both hash keys with timestamp and additional info for future comparisons
+  sessions[sessionId].contentHashes[fullHashKey] = {
     timestamp: now,
     client: originClient,
     type: newClipboard.type,
-    clientInfo: newClipboard.clientInfo
+    clientInfo: newClipboard.clientInfo,
+    os: clientOS,
+    browser: clientBrowser
   };
+  
+  // Store the content-only hash too for cross-OS detection
+  if (!sessions[sessionId].contentHashes[contentOnlyHashKey]) {
+    sessions[sessionId].contentHashes[contentOnlyHashKey] = {
+      timestamp: now,
+      client: originClient
+    };
+  }
   
   // Update session tracking state
   sessions[sessionId].lastUpdateTime = now;

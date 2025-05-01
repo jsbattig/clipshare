@@ -272,7 +272,7 @@ async function handleUseLocalButtonClick() {
     
     UIManager.displayMessage('Remote clipboard updated with local content', 'success', 2000);
   } catch (err) {
-    UIManager.displayMessage('Failed to read clipboard: ' + err.message, 'error');
+  UIManager.displayMessage('Failed to read clipboard: ' + err.message, 'error', 5000);
   }
 }
 

@@ -96,7 +96,8 @@ export function startMonitoring(onContentChanged, updateUI) {
     } catch (err) {
       console.error('Error reading clipboard:', err);
       if (updateUI) {
-        updateUI('Error reading clipboard');
+        // Add auto-hide timeout of 5 seconds for error messages
+        updateUI('Error reading clipboard', 5000);
       }
     }
   }, CONFIG.polling.interval);
