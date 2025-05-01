@@ -264,6 +264,13 @@ button:hover {
   font-size: 0.9rem;
 }
 
+.monitoring-info.note {
+  margin-top: 5px;
+  color: var(--warning-color);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
 /* Switch Toggle */
 .switch {
   position: relative;

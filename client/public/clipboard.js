@@ -61,7 +61,42 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Set up event listeners
   setupEventListeners();
+  
+  // Add page visibility detection
+  setupVisibilityDetection();
 });
+
+/**
+ * Set up page visibility detection to improve UX with background tabs
+ */
+function setupVisibilityDetection() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      // Tab became visible - immediately check clipboard
+      if (isMonitoring && !isUserTyping) {
+        refreshFromClipboard();
+        updateSyncStatus('Tab active - monitoring resumed');
+      }
+    } else {
+      // Tab hidden
+      updateSyncStatus('Tab inactive - monitoring paused');
+    }
+  });
+}
+
+/**
+ * Refresh content from clipboard
+ */
+async function refreshFromClipboard() {
+  try {
+    const clipboardText = await readFromClipboard();
+    if (clipboardText !== lastClipboardContent) {
+      updateClipboardContent(clipboardText, true);
+    }
+  } catch (err) {
+    console.error('Error refreshing from clipboard:', err);
+  }
+}
 
 /**
  * Connect to the session using stored credentials
@@ -140,6 +175,15 @@ function setupEventListeners() {
     // Update UI
     updateSyncStatus('Synchronized');
     updateLastUpdated();
+    
+    // Update system clipboard with what user typed to prevent overwrite
+    // when polling resumes
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(newContent).catch(err => {
+        console.log('Could not write to clipboard:', err);
+        // Non-critical error, continue anyway
+      });
+    }
     
     // Set timer to resume polling after typing stops
     typingTimer = setTimeout(() => {
