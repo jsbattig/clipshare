@@ -108,11 +108,21 @@ function getSessionClients(sessionId) {
   return sessions[sessionId]?.clients || [];
 }
 
+/**
+ * Get the number of clients in a session
+ * @param {string} sessionId - The session identifier
+ * @returns {number} Count of clients in the session
+ */
+function getClientCount(sessionId) {
+  return sessions[sessionId]?.clients.length || 0;
+}
+
 module.exports = {
   joinSession,
   getClipboardContent,
   updateClipboardContent,
   addClientToSession,
   removeClientFromSession,
-  getSessionClients
+  getSessionClients,
+  getClientCount
 };

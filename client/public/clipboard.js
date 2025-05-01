@@ -36,6 +36,9 @@ let isMonitoring = true;
 let pollingInterval = null;
 let lastClipboardContent = '';
 let clientCount = 1; // Including current client
+let isUserTyping = false; // Track when user is typing
+let typingTimer = null; // Timer for typing detection
+const typingTimeout = 3000; // 3 seconds before resuming polling
 
 // Check if user is authenticated
 document.addEventListener('DOMContentLoaded', () => {
@@ -80,6 +83,11 @@ function connectToSession() {
       if (response.clipboard) {
         updateClipboardContent(response.clipboard, false);
       }
+      
+      // Update client count from server
+      if (response.clientCount) {
+        updateClientCount(response.clientCount);
+      }
     } else {
       // Connection failed
       displayMessage('Failed to connect: ' + response.message, 'error');
@@ -119,6 +127,10 @@ function setupEventListeners() {
   
   // Manual textarea change
   clipboardTextarea.addEventListener('input', () => {
+    // Set typing flag to prevent clipboard polling
+    isUserTyping = true;
+    clearTimeout(typingTimer);
+    
     const newContent = clipboardTextarea.value;
     lastClipboardContent = newContent;
     
@@ -128,6 +140,25 @@ function setupEventListeners() {
     // Update UI
     updateSyncStatus('Synchronized');
     updateLastUpdated();
+    
+    // Set timer to resume polling after typing stops
+    typingTimer = setTimeout(() => {
+      isUserTyping = false;
+      updateSyncStatus('Monitoring resumed');
+    }, typingTimeout);
+  });
+  
+  // Add focus/blur events to improve behavior
+  clipboardTextarea.addEventListener('focus', () => {
+    isUserTyping = true;
+    clearTimeout(typingTimer);
+  });
+  
+  clipboardTextarea.addEventListener('blur', () => {
+    // Short delay before resuming to handle click+focus sequence
+    setTimeout(() => {
+      isUserTyping = false;
+    }, 500);
   });
   
   // Monitoring toggle change
@@ -165,7 +196,8 @@ function startClipboardMonitoring() {
   
   // Poll clipboard every second
   pollingInterval = setInterval(async () => {
-    if (!isMonitoring) return;
+    // Skip clipboard check if user is actively typing or monitoring is disabled
+    if (!isMonitoring || isUserTyping) return;
     
     try {
       const clipboardText = await readFromClipboard();
@@ -444,12 +476,18 @@ socket.on('clipboard-broadcast', (data) => {
 });
 
 // Handle client join/leave events
-socket.on('client-joined', () => {
-  updateClientCount(clientCount + 1);
+socket.on('client-joined', (data) => {
+  // Use server-provided count instead of local increment
+  if (data.clientCount) {
+    updateClientCount(data.clientCount);
+  }
   displayMessage('Another device joined the session', 'info', 3000);
 });
 
-socket.on('client-left', () => {
-  updateClientCount(Math.max(1, clientCount - 1));
+socket.on('client-left', (data) => {
+  // Use server-provided count instead of local calculation
+  if (data.clientCount) {
+    updateClientCount(data.clientCount);
+  }
   displayMessage('A device left the session', 'info', 3000);
 });

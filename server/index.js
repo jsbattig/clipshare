@@ -64,14 +64,21 @@ io.on('connection', (socket) => {
       // Get current clipboard content
       const currentContent = sessionManager.getClipboardContent(sessionId);
       
-      // Send success response with current clipboard
+      // Get the current client count after this client joined
+      const clientCount = sessionManager.getClientCount(sessionId);
+      
+      // Send success response with current clipboard and client count
       callback({ 
         ...result, 
-        clipboard: currentContent 
+        clipboard: currentContent,
+        clientCount: clientCount
       });
       
       // Notify other clients that a new client joined
-      socket.to(sessionId).emit('client-joined', { clientId: socket.id });
+      socket.to(sessionId).emit('client-joined', { 
+        clientId: socket.id,
+        clientCount: clientCount
+      });
     } else {
       // Authentication failed
       callback(result);
@@ -105,8 +112,14 @@ io.on('connection', (socket) => {
       // Remove client from session
       sessionManager.removeClientFromSession(sessionId, socket.id);
       
+      // Calculate client count (needs to be -1 since this client is still in the count)
+      const remainingClients = sessionManager.getClientCount(sessionId);
+      
       // Notify other clients about disconnection
-      socket.to(sessionId).emit('client-left', { clientId: socket.id });
+      socket.to(sessionId).emit('client-left', { 
+        clientId: socket.id,
+        clientCount: remainingClients
+      });
     }
   });
 });
