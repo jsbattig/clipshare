@@ -124,6 +124,39 @@ function connectToSession() {
       // Set initial clipboard content if available
       if (response.clipboard) {
         updateClipboardContent(response.clipboard, false);
+        
+        // Also update system clipboard with the initial content
+        // This ensures the joining device's clipboard is synced with the session
+        try {
+          if (response.clipboard.type === 'text') {
+            navigator.clipboard.writeText(response.clipboard.content).catch(err => {
+              console.error('Error writing initial text to clipboard:', err);
+            });
+          } else if (response.clipboard.type === 'image') {
+            // For images, we'll try to use the newer Clipboard API
+            try {
+              // Convert data URL to Blob
+              const blob = dataURLtoBlob(response.clipboard.content);
+              
+              // Only try this in browsers that support ClipboardItem
+              if (window.ClipboardItem) {
+                const clipboardItem = new ClipboardItem({
+                  [blob.type]: blob
+                });
+                navigator.clipboard.write([clipboardItem]).catch(err => {
+                  console.error('Error writing image to clipboard:', err);
+                  displayMessage('Image available in app (cannot copy to system clipboard)', 'info', 3000);
+                });
+              } else {
+                displayMessage('Image available in app (system clipboard image writing not supported)', 'info', 3000);
+              }
+            } catch (imgError) {
+              console.error('Error preparing image for clipboard:', imgError);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to access clipboard API for initial sync:', err);
+        }
       }
       
       // Update client count from server
@@ -450,48 +483,104 @@ function isOversizedImage(imageElement) {
 }
 
 /**
+ * Convert a data URL to a Blob object
+ * @param {string} dataURL - The data URL to convert
+ * @returns {Blob} The resulting Blob object
+ */
+function dataURLtoBlob(dataURL) {
+  // Convert base64/URLEncoded data component to raw binary data held in a string
+  let byteString;
+  if (dataURL.split(',')[0].indexOf('base64') >= 0) {
+    byteString = atob(dataURL.split(',')[1]);
+  } else {
+    byteString = decodeURIComponent(dataURL.split(',')[1]);
+  }
+  
+  // Separate out the mime component
+  const mimeString = dataURL.split(',')[0].split(':')[1].split(';')[0];
+  
+  // Write the bytes of the string to an ArrayBuffer
+  const ab = new ArrayBuffer(byteString.length);
+  const ia = new Uint8Array(ab);
+  for (let i = 0; i < byteString.length; i++) {
+    ia[i] = byteString.charCodeAt(i);
+  }
+  
+  // Create a Blob with the ArrayBuffer
+  return new Blob([ab], { type: mimeString });
+}
+
+/**
  * Copy content to clipboard with improved fallbacks
  */
 async function copyToClipboard() {
-  const content = clipboardTextarea.value;
-  
   try {
-    // Try modern Clipboard API first
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      try {
-        await navigator.clipboard.writeText(content);
-        displayMessage('Copied to clipboard', 'success', 2000);
-        return;
-      } catch (clipboardError) {
-        console.log('Clipboard write API failed, trying fallback...', clipboardError);
-        // Fall through to fallback if this fails
-      }
-    }
-    
-    // Fallback using execCommand
-    try {
-      // Select the text
-      clipboardTextarea.select();
-      // For mobile devices
-      clipboardTextarea.setSelectionRange(0, 99999);
-      
-      // Execute copy command
-      const success = document.execCommand('copy');
-      
-      if (success) {
-        displayMessage('Copied to clipboard (fallback method)', 'success', 2000);
+    // Handle different types of content
+    if (lastClipboardType === 'image' && !imageContainer.classList.contains('hidden')) {
+      // Try to copy the image
+      if (navigator.clipboard && window.ClipboardItem) {
+        try {
+          // Get the image data
+          const imageURL = clipboardImage.src;
+          const blob = dataURLtoBlob(imageURL);
+          
+          // Create a ClipboardItem
+          const clipboardItem = new ClipboardItem({
+            [blob.type]: blob
+          });
+          
+          // Write to clipboard
+          await navigator.clipboard.write([clipboardItem]);
+          displayMessage('Image copied to clipboard', 'success', 2000);
+          return;
+        } catch (imgError) {
+          console.error('Image copy to clipboard failed:', imgError);
+          displayMessage('Could not copy image to clipboard (browser limitation)', 'error', 3000);
+        }
       } else {
-        throw new Error('execCommand copy failed');
+        displayMessage('Browser does not support copying images to clipboard', 'info', 3000);
       }
-    } catch (fallbackError) {
-      throw fallbackError; // Re-throw for the outer catch
+    } else {
+      // Handle text content
+      const content = clipboardTextarea.value;
+      
+      // Try modern Clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(content);
+          displayMessage('Copied to clipboard', 'success', 2000);
+          return;
+        } catch (clipboardError) {
+          console.log('Clipboard write API failed, trying fallback...', clipboardError);
+          // Fall through to fallback if this fails
+        }
+      }
+      
+      // Fallback using execCommand
+      try {
+        // Select the text
+        clipboardTextarea.select();
+        // For mobile devices
+        clipboardTextarea.setSelectionRange(0, 99999);
+        
+        // Execute copy command
+        const success = document.execCommand('copy');
+        
+        if (success) {
+          displayMessage('Copied to clipboard (fallback method)', 'success', 2000);
+        } else {
+          throw new Error('execCommand copy failed');
+        }
+      } catch (fallbackError) {
+        throw fallbackError; // Re-throw for the outer catch
+      }
     }
   } catch (err) {
     console.error('Copy failed:', err);
     displayMessage('Failed to copy: ' + (err.message || 'Unknown error'), 'error');
     
     // Last resort - prompt user to copy manually
-    displayMessage('Please use Ctrl+C/Cmd+C to copy manually', 'info', 4000);
+    displayMessage('Please use system copy functionality to copy the content', 'info', 4000);
   }
 }
 
