@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClipShare - Synchronized Clipboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="/socket.io/socket.io.js" defer></script>
+    <script src="clipboard.js" defer></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>ClipShare</h1>
+            <p class="tagline">Real-time clipboard synchronization across devices</p>
+        </header>
+        
+        <main class="app-container">
+            <div class="session-info">
+                <h2>Session: <span id="session-name">Loading...</span></h2>
+                <div id="connection-status" class="connected">Connected</div>
+                <div id="clients-info">Clients connected: <span id="client-count">1</span></div>
+            </div>
+            
+            <div id="app-message" class="message hidden"></div>
+            
+            <div class="clipboard-section">
+                <h3>Current Clipboard Content</h3>
+                <div class="clipboard-controls">
+                    <button id="copy-btn" title="Copy to clipboard">Copy</button>
+                    <button id="clear-btn" title="Clear content">Clear</button>
+                    <button id="refresh-btn" title="Refresh from clipboard">Refresh</button>
+                </div>
+                <div class="clipboard-container">
+                    <textarea id="clipboard-content" placeholder="Clipboard content will appear here. Type or paste content to share it with all connected devices."></textarea>
+                </div>
+                
+                <div class="clipboard-info">
+                    <p id="sync-status">Synchronized</p>
+                    <p id="last-update">Last update: Never</p>
+                </div>
+            </div>
+            
+            <div class="monitoring-section">
+                <h3>Clipboard Monitoring</h3>
+                <div class="toggle-container">
+                    <label class="switch">
+                        <input type="checkbox" id="monitoring-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                    <span id="monitoring-status">Monitoring Active</span>
+                </div>
+                <p class="monitoring-info">When active, your clipboard will be monitored for changes and synchronized with all devices in this session.</p>
+            </div>
+            
+            <div class="actions">
+                <button id="logout-btn">Leave Session</button>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2025 ClipShare</p>
+        </footer>
+    </div>
+</body>
+</html>

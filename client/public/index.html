@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClipShare - Synchronized Clipboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="/socket.io/socket.io.js" defer></script>
+    <script src="auth.js" defer></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>ClipShare</h1>
+            <p class="tagline">Real-time clipboard synchronization across devices</p>
+        </header>
+        
+        <main class="auth-container">
+            <h2>Join or Create a Session</h2>
+            <p>Enter a session name and passphrase to create or join a session.</p>
+            
+            <div id="auth-message" class="message hidden"></div>
+            
+            <form id="auth-form">
+                <div class="form-group">
+                    <label for="session-id">Session Name:</label>
+                    <input type="text" id="session-id" name="session-id" required placeholder="e.g., my-shared-clipboard">
+                </div>
+                
+                <div class="form-group">
+                    <label for="passphrase">Passphrase:</label>
+                    <input type="password" id="passphrase" name="passphrase" required placeholder="Enter a secure passphrase">
+                </div>
+                
+                <button type="submit" id="auth-button">Join Session</button>
+            </form>
+            
+            <div class="auth-info">
+                <h3>How It Works</h3>
+                <ul>
+                    <li>Create a new session by entering a unique name and passphrase</li>
+                    <li>Join an existing session by entering its name and passphrase</li>
+                    <li>Share the session name and passphrase with others to sync clipboards</li>
+                    <li>All devices in the same session will have synchronized clipboards</li>
+                </ul>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2025 ClipShare</p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  clipshare:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: clipshare:latest
+    container_name: clipshare-app
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    # volumes:
+    #   - ./server:/app/server
+    #   - ./client:/app/client
+    networks:
+      - clipshare-network
+
+networks:
+  clipshare-network:
+    driver: bridge
