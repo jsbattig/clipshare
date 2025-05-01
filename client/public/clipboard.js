@@ -584,14 +584,8 @@ async function copyToClipboard() {
   }
 }
 
-/**
- * Send clipboard update to server
- */
-function sendClipboardUpdate(content) {
-  if (!isConnected) return;
-  
-  socket.emit('clipboard-update', { content });
-}
+// Function removed to fix duplicate definition
+// The correct implementation is defined later in the file
 
 /**
  * Update clipboard content in the UI and optionally send to server
