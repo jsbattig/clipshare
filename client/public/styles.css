@@ -25,6 +25,7 @@ body {
   line-height: 1.6;
   color: var(--text-color);
   background-color: var(--background-color);
+  position: relative; /* Ensure a proper stacking context for modal elements */
 }
 
 .container {
@@ -243,36 +244,43 @@ button:hover {
   position: relative;
 }
 
-/* Global Modal Overlay - properly positioned at root level with higher z-index */
+/* Global Modal Overlay - properly positioned at root body level */
 #global-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
   background-color: rgba(0, 0, 0, 0.5);
-  z-index: 9990;
+  z-index: 99990 !important;
+  transform: none !important; /* Prevent inheriting transforms */
+  -webkit-transform: none !important;
+  pointer-events: auto !important;
 }
 
 /* Drop Zone - properly positioned as a modal dialog */
 #drop-zone {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 450px;
-  max-width: 90%;
-  height: 220px;
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  -webkit-transform: translate(-50%, -50%) !important;
+  width: 450px !important;
+  max-width: 90% !important;
+  height: 220px !important;
   border: 3px dashed var(--primary-color);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background: #ffffff;
+  background: #ffffff !important;
   transition: all 0.3s ease;
-  z-index: 9999;
+  z-index: 99999 !important;
   box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+  pointer-events: auto !important;
 }
 
 #drop-zone.drag-active {
@@ -321,23 +329,25 @@ button:hover {
   color: var(--text-color);
 }
 
-/* Multi-file Indicator - styled as a modal element */
+/* Multi-file Indicator - styled as a floating footer element */
 #multi-file-indicator {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed !important;
+  bottom: 20px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  -webkit-transform: translateX(-50%) !important;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: white;
+  background: white !important;
   padding: 10px 15px;
   border-radius: 8px;
   border: 1px solid var(--border-color);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
-  z-index: 9995;
+  z-index: 99995 !important;
   min-width: 300px;
   max-width: 90%;
+  pointer-events: auto !important;
 }
 
 .file-count-badge {
@@ -782,8 +792,14 @@ input:checked + .slider:before {
   color: var(--primary-dark);
 }
 
-.hidden {
-  display: none;
+/* Force higher specificity for hidden class on modal elements */
+.hidden, 
+body .hidden, 
+html .hidden,
+#global-overlay.hidden,
+#multi-file-indicator.hidden,
+#drop-zone.hidden {
+  display: none !important;
 }
 
 /* Footer Styles */
