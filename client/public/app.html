@@ -31,11 +31,36 @@
                     <button id="clear-btn" title="Clear content">Clear</button>
                     <button id="refresh-btn" title="Paste from clipboard">Paste</button>
                 </div>
+                <div id="content-type-status" class="content-status hidden">
+                    <div class="status-icon"></div>
+                    <div class="status-text">Remote clipboard contains: <span id="content-type">Text</span></div>
+                </div>
+                
                 <div class="clipboard-container">
+                    <div id="clipboard-diff-banner" class="notification-banner hidden">
+                        <span>Local clipboard differs from remote content</span>
+                        <button id="use-local-btn">Update Remote →</button>
+                    </div>
+                    
                     <textarea id="clipboard-content" placeholder="Clipboard content will appear here. Type or paste content to share it with all connected devices."></textarea>
+                    
                     <div id="image-container" class="hidden">
                         <img id="clipboard-image" alt="Clipboard image content">
                         <div class="image-info">Image in clipboard</div>
+                    </div>
+                    
+                    <div id="file-banner" class="file-banner hidden">
+                        <div class="file-icon-container">
+                            <div class="file-type-icon"></div>
+                        </div>
+                        <div class="file-details">
+                            <span class="file-name" id="clipboard-file-name">filename.ext</span>
+                            <span class="file-size" id="clipboard-file-size">0 KB</span>
+                            <span class="file-type" id="clipboard-file-mime">file/unknown</span>
+                        </div>
+                        <div class="banner-message">
+                            File detected in clipboard.
+                        </div>
                     </div>
                 </div>
                 

@@ -77,6 +77,15 @@ const clientCountEl = document.getElementById('client-count');
 const clipboardTextarea = document.getElementById('clipboard-content');
 const imageContainer = document.getElementById('image-container');
 const clipboardImage = document.getElementById('clipboard-image');
+const fileContainer = document.getElementById('file-banner');
+const fileNameEl = document.getElementById('clipboard-file-name');
+const fileSizeEl = document.getElementById('clipboard-file-size');
+const fileMimeEl = document.getElementById('clipboard-file-mime');
+const fileTypeIcon = document.querySelector('.file-type-icon');
+const diffBanner = document.getElementById('clipboard-diff-banner');
+const useLocalBtn = document.getElementById('use-local-btn');
+const contentTypeStatus = document.getElementById('content-type-status');
+const contentTypeText = document.getElementById('content-type');
 const copyBtn = document.getElementById('copy-btn');
 const clearBtn = document.getElementById('clear-btn');
 const refreshBtn = document.getElementById('refresh-btn');
@@ -86,6 +95,14 @@ const syncStatusEl = document.getElementById('sync-status');
 const lastUpdateEl = document.getElementById('last-update');
 const logoutBtn = document.getElementById('logout-btn');
 const appMessage = document.getElementById('app-message');
+
+// Content type constants
+const CONTENT_STATES = {
+  TEXT: 'text',
+  IMAGE: 'image',
+  FILE: 'file',
+  EMPTY: 'empty'
+};
 
 // Application state
 let sessionData = null;
@@ -101,12 +118,16 @@ let typingTimer = null; // Timer for typing detection
 let syncGracePeriod = false; // Flag to prevent sync race conditions
 let lastContentOrigin = 'init'; // Track where content came from: 'local', 'remote', 'manual', 'init'
 let lastSyncAttemptTime = 0; // Track when we last tried to sync to avoid frequent checks
+let currentContentState = CONTENT_STATES.EMPTY; // Current type of content in clipboard
+let fileTransferInProgress = false; // Flag to track if a file transfer is in progress
 const typingTimeout = 3000; // 3 seconds before resuming polling
 const syncGracePeriodDuration = 3000; // 3 seconds grace period after receiving updates (increased from 500ms)
 const minTimeBetweenSyncs = 2000; // Minimum time between sync attempts
 const maxImageSize = 800; // Maximum size for images before thumbnailing
 const imageSyncRetries = 3; // Number of times to retry syncing images to system clipboard
 const imageSyncRetryDelay = 1000; // Delay between image sync retries
+const maxFileSize = 50 * 1024 * 1024; // 50MB maximum file size
+const fileChunkSize = 1024 * 1024; // 1MB chunks for file transfer
 
 // Check if user is authenticated
 document.addEventListener('DOMContentLoaded', () => {
@@ -239,9 +260,13 @@ function connectToSession() {
  * Set up event listeners
  */
 function setupEventListeners() {
-  // Copy button click
+  // Copy/Download button click
   copyBtn.addEventListener('click', () => {
-    copyToClipboard();
+    if (currentContentState === CONTENT_STATES.FILE) {
+      downloadFile();
+    } else {
+      copyToClipboard();
+    }
   });
   
   // Clear button click
@@ -250,12 +275,31 @@ function setupEventListeners() {
     clipboardTextarea.focus();
   });
   
-  // Refresh button click
+  // Refresh/Paste button click
   refreshBtn.addEventListener('click', async () => {
     try {
-      const clipboardText = await readFromClipboard();
-      updateClipboardContent(clipboardText, true);
-      displayMessage('Clipboard refreshed', 'info', 2000);
+      const clipboardContent = await readFromClipboard();
+      
+      // If content is a file, show confirmation before sending
+      if (clipboardContent && clipboardContent.type === 'file') {
+        showFileTransferConfirmation(clipboardContent);
+      } else {
+        // Handle other content types normally
+        updateClipboardContent(clipboardContent, true);
+        displayMessage('Clipboard refreshed', 'info', 2000);
+      }
+    } catch (err) {
+      displayMessage('Failed to read clipboard: ' + err.message, 'error');
+    }
+  });
+  
+  // Use local button click (for clipboard differences)
+  useLocalBtn.addEventListener('click', async () => {
+    try {
+      const clipboardContent = await readFromClipboard();
+      updateClipboardContent(clipboardContent, true);
+      diffBanner.classList.add('hidden');
+      displayMessage('Remote clipboard updated with local content', 'success', 2000);
     } catch (err) {
       displayMessage('Failed to read clipboard: ' + err.message, 'error');
     }
@@ -688,6 +732,10 @@ async function copyToClipboard() {
  * @param {boolean} sendToServer - Whether to send update to server
  */
 function updateClipboardContent(content, sendToServer = false) {
+  // Clear UI state for content transition
+  copyBtn.classList.remove('download-mode');
+  copyBtn.textContent = 'Copy';
+  
   // Handle different content formats
   if (typeof content === 'string') {
     // Legacy string format - treat as text
@@ -696,6 +744,10 @@ function updateClipboardContent(content, sendToServer = false) {
     // Update last known content
     lastClipboardContent = content;
     lastClipboardType = 'text';
+    currentContentState = CONTENT_STATES.TEXT;
+    
+    // Update content type indicator
+    updateContentTypeIndicator(CONTENT_STATES.TEXT);
     
     // Optionally send to server (legacy format)
     if (sendToServer) {
@@ -709,12 +761,30 @@ function updateClipboardContent(content, sendToServer = false) {
       handleTextContent(content.content);
       lastClipboardType = 'text';
       lastClipboardContent = content;
+      currentContentState = CONTENT_STATES.TEXT;
+      
+      // Update content type indicator
+      updateContentTypeIndicator(CONTENT_STATES.TEXT);
     } 
     else if (content.type === 'image') {
       // Handle image content
       handleImageContent(content.content, content.imageType);
       lastClipboardType = 'image';
       lastClipboardContent = content;
+      currentContentState = CONTENT_STATES.IMAGE;
+      
+      // Update content type indicator
+      updateContentTypeIndicator(CONTENT_STATES.IMAGE);
+    }
+    else if (content.type === 'file') {
+      // Handle file content
+      handleFileContent(content);
+      lastClipboardType = 'file';
+      lastClipboardContent = content;
+      currentContentState = CONTENT_STATES.FILE;
+      
+      // Update content type indicator
+      updateContentTypeIndicator(CONTENT_STATES.FILE);
     }
     
     // Optionally send to server (new format)
@@ -950,6 +1020,144 @@ socket.on('clipboard-broadcast', (data) => {
   }, syncGracePeriodDuration);
 });
 
+/**
+ * Show confirmation before transferring a file
+ * @param {Object} fileData - File data object
+ */
+function showFileTransferConfirmation(fileData) {
+  // Get file info
+  const fileName = fileData.fileName || 'unknown-file';
+  const fileSize = fileData.fileSize || 0;
+  const formattedSize = formatFileSize(fileSize);
+  
+  // Show confirmation dialog
+  const confirmSend = confirm(
+    `Send file "${fileName}" (${formattedSize}) to all connected devices?`
+  );
+  
+  if (confirmSend) {
+    // User confirmed, prepare and send the file
+    updateClipboardContent(fileData, true);
+    displayMessage(`Sending file "${fileName}"...`, 'info', 3000);
+  }
+}
+
+/**
+ * Format file size to human-readable format
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size string
+ */
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+/**
+ * Download a file from clipboard data
+ */
+function downloadFile() {
+  if (currentContentState !== CONTENT_STATES.FILE || !lastClipboardContent) {
+    displayMessage('No file to download', 'error', 2000);
+    return;
+  }
+  
+  try {
+    // Get file data
+    const { fileName, fileContent, fileType } = lastClipboardContent;
+    
+    // Create blob from content
+    const blob = dataURLtoBlob(fileContent);
+    
+    // Create download link
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName || 'download-file';
+    a.style.display = 'none';
+    
+    // Add to document and trigger click
+    document.body.appendChild(a);
+    a.click();
+    
+    // Clean up
+    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    
+    displayMessage(`File "${fileName}" downloaded successfully`, 'success', 3000);
+  } catch (err) {
+    console.error('Download failed:', err);
+    displayMessage('Failed to download file: ' + (err.message || 'Unknown error'), 'error');
+  }
+}
+
+/**
+ * Update UI to show file content
+ * @param {Object} fileData - File data object
+ */
+function handleFileContent(fileData) {
+  // Hide other containers
+  clipboardTextarea.value = '';
+  clipboardTextarea.classList.add('hidden');
+  imageContainer.classList.add('hidden');
+  
+  // Show file banner
+  fileContainer.classList.remove('hidden');
+  
+  // Update file info
+  fileNameEl.textContent = fileData.fileName || 'Unknown file';
+  fileSizeEl.textContent = formatFileSize(fileData.fileSize || 0);
+  fileMimeEl.textContent = fileData.fileType || 'unknown/type';
+  
+  // Set file extension in icon if we can determine it
+  if (fileData.fileName) {
+    const extension = fileData.fileName.split('.').pop().toLowerCase();
+    if (extension) {
+      fileTypeIcon.setAttribute('data-extension', extension);
+    } else {
+      fileTypeIcon.removeAttribute('data-extension');
+    }
+  }
+  
+  // Update copy button to download mode
+  copyBtn.textContent = 'Download';
+  copyBtn.classList.add('download-mode');
+  
+  // Update content state
+  currentContentState = CONTENT_STATES.FILE;
+  
+  // Update content type indicator
+  updateContentTypeIndicator(CONTENT_STATES.FILE);
+}
+
+/**
+ * Update the content type indicator
+ * @param {string} type - Content type (from CONTENT_STATES)
+ */
+function updateContentTypeIndicator(type) {
+  // Show the status indicator
+  contentTypeStatus.classList.remove('hidden');
+  
+  // Remove old type classes
+  contentTypeStatus.classList.remove('text-content', 'image-content', 'file-content');
+  
+  // Update the content type text
+  contentTypeText.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+  
+  // Add the appropriate class
+  if (type === CONTENT_STATES.TEXT) {
+    contentTypeStatus.classList.add('text-content');
+  } else if (type === CONTENT_STATES.IMAGE) {
+    contentTypeStatus.classList.add('image-content');
+  } else if (type === CONTENT_STATES.FILE) {
+    contentTypeStatus.classList.add('file-content');
+  }
+}
+
 // Handle client join/leave events
 socket.on('client-joined', (data) => {
   // Use server-provided count instead of local increment
@@ -972,4 +1180,10 @@ socket.on('client-count-update', (data) => {
   if (data.clientCount !== undefined) {
     updateClientCount(data.clientCount);
   }
+});
+
+// Listen for file chunk transfers
+socket.on('file-chunk', (data) => {
+  // TODO: Implement file chunking for large files
+  console.log('Received file chunk:', data.chunkId, 'of', data.totalChunks);
 });
