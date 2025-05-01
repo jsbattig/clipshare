@@ -117,15 +117,54 @@ export function handleFileContent(fileData) {
 export async function copyToClipboard() {
   try {
     if (currentContentState === CONFIG.contentTypes.TEXT) {
-      await copyTextToClipboard();
+      const clipboardTextarea = getElement('clipboard-content');
+      if (!clipboardTextarea) {
+        throw new Error('Clipboard textarea not found');
+      }
+      
+      const textContent = {
+        type: 'text',
+        content: clipboardTextarea.value,
+        timestamp: Date.now()
+      };
+      
+      // Use the ClipboardUtils to write to clipboard
+      const success = await ClipboardUtils.writeToClipboard(textContent);
+      
+      if (success) {
+        UIManager.displayMessage('Text copied to clipboard', 'success', 2000);
+      } else {
+        throw new Error('Failed to copy text');
+      }
+      
     } else if (currentContentState === CONFIG.contentTypes.IMAGE) {
-      await copyImageToClipboard();
+      const clipboardImage = getElement('clipboard-image');
+      if (!clipboardImage) {
+        throw new Error('Clipboard image not found');
+      }
+      
+      const imageContent = {
+        type: 'image',
+        content: clipboardImage.src,
+        imageType: clipboardImage.dataset.mimeType || 'image/png',
+        timestamp: Date.now()
+      };
+      
+      // Use the ClipboardUtils to write to clipboard
+      const success = await ClipboardUtils.writeToClipboard(imageContent);
+      
+      if (success) {
+        UIManager.displayMessage('Image copied to clipboard', 'success', 2000);
+      } else {
+        throw new Error('Failed to copy image');
+      }
+      
     } else if (currentContentState === CONFIG.contentTypes.FILE) {
       downloadFile();
     }
   } catch (err) {
     console.error('Copy failed:', err);
-    UIManager.displayMessage('Failed to copy: ' + (err.message || 'Unknown error'), 'error');
+    UIManager.displayMessage('Failed to copy: ' + (err.message || 'Unknown error'), 'error', 5000);
     
     // Last resort - prompt user to copy manually
     UIManager.displayMessage('Please use system copy functionality to copy the content', 'info', 4000);

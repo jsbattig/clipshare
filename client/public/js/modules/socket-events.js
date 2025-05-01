@@ -6,8 +6,7 @@
 
 import { CONFIG } from './config.js';
 import * as UIManager from './ui-manager.js';
-// Import basic clipboard utilities (not monitoring)
-// Just importing core functions for manually reading/writing clipboard
+// Import basic clipboard utilities for manually reading/writing clipboard
 import * as ClipboardUtils from './clipboard-monitor.js';
 import * as ContentHandlers from './content-handlers.js';
 import * as Session from './session.js';
@@ -166,7 +165,7 @@ function handleClipboardBroadcast(data) {
     return;
   }
   
-  console.log('Received clipboard update from another device', data.type);
+  console.log('Received clipboard update from another device:', data.type);
   
   // Handle different content types
   if (data.type === 'file') {
@@ -178,8 +177,8 @@ function handleClipboardBroadcast(data) {
       clipboardUpdateCallback(data, false);
     }
     
-    // Update UI
-    UIManager.updateSyncStatus('Received new content - Click "Copy" to use it');
+    // Update UI with informative message
+    UIManager.updateSyncStatus(`Received ${data.type} content - Click "Copy" to use it`);
     UIManager.updateLastUpdated();
     
     const contentTypeMsg = data.type === 'image' ? 'Image' : 'Text';
@@ -241,12 +240,17 @@ export function sendClipboardUpdate(content) {
     return false;
   }
   
-  // Add basic client info but skip complex hashing/fingerprinting
+  // Include full client info with browser, OS and timestamp
   const enhancedContent = {
     ...content,
-    clientInfo: getBrowserInfo()
+    clientInfo: getBrowserInfo(),
+    timestamp: content.timestamp || Date.now()
   };
   
+  // Add detailed logging
+  console.log('Sending clipboard update:', enhancedContent.type);
+  
+  // Send the event to the server
   socket.emit('clipboard-update', enhancedContent);
   return true;
 }

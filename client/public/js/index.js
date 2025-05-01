@@ -9,7 +9,7 @@ import { CONFIG } from './modules/config.js';
 import * as Utils from './modules/utils.js';
 import * as Session from './modules/session.js';
 import * as UIManager from './modules/ui-manager.js';
-import * as ClipboardMonitor from './modules/clipboard-monitor.js';
+import * as ClipboardUtils from './modules/clipboard-monitor.js';
 import * as ContentHandlers from './modules/content-handlers.js';
 import * as FileOperations from './modules/file-operations.js';
 import * as SocketEvents from './modules/socket-events.js';
@@ -44,7 +44,7 @@ function initializeApp() {
   if (appInitialized) return;
   
   try {
-    console.log('Initializing ClipShare application...');
+    console.log('Initializing ClipShare application with manual clipboard operations...');
     
     // Initialize socket
     const socket = initializeSocket();
@@ -74,28 +74,8 @@ function initializeApp() {
       }
     });
     
-    // Initialize clipboard monitoring
-    ClipboardMonitor.init({
-      isMonitoring: true
-    });
-    
-    // Start clipboard monitoring with callback
-    ClipboardMonitor.startMonitoring(
-      (content, sendToServer) => {
-        ContentHandlers.updateClipboardContent(
-          content, 
-          sendToServer, 
-          SocketEvents.sendClipboardUpdate
-        );
-      },
-      UIManager.updateSyncStatus
-    );
-    
     // Set up all event listeners
     EventHandlers.setupEventListeners();
-    
-    // Set page visibility detection
-    setupVisibilityDetection();
     
     // Mark as initialized
     appInitialized = true;
@@ -105,30 +85,6 @@ function initializeApp() {
     console.error('Error initializing application:', err);
     UIManager.displayMessage('Failed to initialize application: ' + err.message, 'error');
   }
-}
-
-/**
- * Set up page visibility detection
- */
-function setupVisibilityDetection() {
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      // Tab became visible - immediately check clipboard
-      if (ClipboardMonitor.getMonitoringState()) {
-        ClipboardMonitor.refreshFromClipboard((content, sendToServer) => {
-          ContentHandlers.updateClipboardContent(
-            content, 
-            sendToServer, 
-            SocketEvents.sendClipboardUpdate
-          );
-        });
-        UIManager.updateSyncStatus('Tab active - monitoring resumed');
-      }
-    } else {
-      // Tab hidden
-      UIManager.updateSyncStatus('Tab inactive - monitoring paused');
-    }
-  });
 }
 
 // Initialize application when DOM is ready
