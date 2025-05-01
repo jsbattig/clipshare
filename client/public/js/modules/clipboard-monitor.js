@@ -159,36 +159,54 @@ export function setGracePeriod(inGracePeriod) {
  * @returns {boolean} True if content has changed
  */
 function hasContentChanged(newContent) {
-  let contentChanged = false;
-  let isContentSame = false;
+  // Get base content without metadata for reliable comparison
+  const newBaseContent = getBaseContent(newContent);
+  const lastBaseContent = getBaseContent(lastClipboardContent);
   
-  if (typeof lastClipboardContent === 'string' && typeof newContent === 'object') {
-    // Old format vs new format
-    if (newContent.type === 'text' && newContent.content === lastClipboardContent) {
-      isContentSame = true;
-    } else {
-      contentChanged = true;
-    }
-  } else if (typeof lastClipboardContent === 'object' && typeof newContent === 'object') {
-    // Both object format - check if content is same regardless of timestamp
-    if (lastClipboardContent.type === newContent.type) {
-      if (lastClipboardContent.type === 'text' && 
-          lastClipboardContent.content === newContent.content) {
-        isContentSame = true;
-      } else if (lastClipboardContent.type === 'image' && 
-                 lastClipboardContent.content === newContent.content) {
-        isContentSame = true;
-      }
-    }
-    
-    // Only mark as changed if content is actually different
-    contentChanged = !isContentSame;
-  } else {
-    // Simple string comparison (legacy)
-    contentChanged = newContent !== lastClipboardContent;
+  // Simple hash of content for better comparison
+  const newContentHash = hashContent(newContent);
+  const lastContentHash = hashContent(lastClipboardContent);
+  
+  // If hash matches, content is the same despite metadata differences
+  if (newContentHash === lastContentHash) {
+    return false;
   }
   
-  return contentChanged;
+  // Compare actual content, not just object structure
+  return newBaseContent !== lastBaseContent;
+}
+
+/**
+ * Extract the base content without metadata
+ * @param {Object|string} content - Content object or string
+ * @returns {string} The actual content without metadata
+ */
+function getBaseContent(content) {
+  if (typeof content === 'string') return content;
+  if (typeof content === 'object') {
+    if (content.type === 'text') return content.content;
+    if (content.type === 'image') return content.content;
+  }
+  return JSON.stringify(content);
+}
+
+/**
+ * Generate a simple hash of content for comparison
+ * @param {Object|string} content - Content to hash
+ * @returns {string} Content hash
+ */
+function hashContent(content) {
+  if (typeof content === 'string') return content;
+  
+  if (typeof content === 'object') {
+    if (content.type === 'text') return content.content;
+    if (content.type === 'image') {
+      // For images, use beginning of data URL as representative sample
+      return content.content.substring(0, 100);
+    }
+  }
+  
+  return JSON.stringify(content);
 }
 
 /**

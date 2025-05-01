@@ -9,6 +9,7 @@ import * as UIManager from './ui-manager.js';
 import * as ClipboardMonitor from './clipboard-monitor.js';
 import * as ContentHandlers from './content-handlers.js';
 import * as Session from './session.js';
+import { getBrowserInfo, hashContent } from './utils.js';
 
 // Module state
 let socket = null;
@@ -249,7 +250,14 @@ export function sendClipboardUpdate(content) {
     return false;
   }
   
-  socket.emit('clipboard-update', content);
+  // Add window/browser info to help identify same-device clients
+  const enhancedContent = {
+    ...content,
+    clientInfo: getBrowserInfo(),
+    contentHash: hashContent(content)
+  };
+  
+  socket.emit('clipboard-update', enhancedContent);
   return true;
 }
 

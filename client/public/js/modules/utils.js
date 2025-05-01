@@ -183,3 +183,80 @@ export function getElement(id, required = false) {
   
   return element;
 }
+
+/**
+ * Generate a unique window identifier that persists across page reloads
+ * @returns {string} Window identifier
+ */
+export function getWindowIdentifier() {
+  // Check if we already have a window ID in sessionStorage
+  let windowId = sessionStorage.getItem('clipshare_window_id');
+  
+  if (!windowId) {
+    // Create a new window ID - combination of timestamp and random string
+    windowId = `window_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    sessionStorage.setItem('clipshare_window_id', windowId);
+  }
+  
+  return windowId;
+}
+
+/**
+ * Get browser information
+ * @returns {Object} Browser details
+ */
+export function getBrowserInfo() {
+  const ua = navigator.userAgent;
+  let browserName = "Unknown";
+  
+  if (ua.match(/chrome|chromium|crios/i)) {
+    browserName = "Chrome";
+  } else if (ua.match(/firefox|fxios/i)) {
+    browserName = "Firefox";
+  } else if (ua.match(/safari/i)) {
+    browserName = "Safari";
+  } else if (ua.match(/opr\//i)) {
+    browserName = "Opera";
+  } else if (ua.match(/edg/i)) {
+    browserName = "Edge";
+  }
+  
+  return {
+    name: browserName,
+    windowId: getWindowIdentifier(),
+    userAgent: ua.substring(0, 100) // Truncated to avoid excessive size
+  };
+}
+
+/**
+ * Generate a simple content hash for comparison
+ * @param {Object|string} content - Content to hash
+ * @returns {string} Content hash
+ */
+export function hashContent(content) {
+  if (typeof content === 'string') return content;
+  
+  if (typeof content === 'object') {
+    if (content.type === 'text') return content.content;
+    if (content.type === 'image') {
+      // For images, use beginning of data URL as representative sample
+      return content.content.substring(0, 100);
+    }
+  }
+  
+  return JSON.stringify(content);
+}
+
+/**
+ * Extract the base content without metadata
+ * @param {Object|string} content - Content object or string
+ * @returns {string} The actual content without metadata
+ */
+export function getBaseContent(content) {
+  if (typeof content === 'string') return content;
+  if (typeof content === 'object') {
+    if (content.type === 'text') return content.content;
+    if (content.type === 'image') return content.content;
+  }
+  return JSON.stringify(content);
+}

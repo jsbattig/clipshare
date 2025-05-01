@@ -112,7 +112,7 @@ io.on('connection', (socket) => {
   
   // Handle clipboard updates
   socket.on('clipboard-update', (data) => {
-    const { content, type = 'text', timestamp } = data;
+    const { content, type = 'text', timestamp, clientInfo } = data;
     const { sessionId } = socket;
     
     if (!sessionId) {
@@ -126,19 +126,26 @@ io.on('connection', (socket) => {
       clipboardData = { 
         type: 'text', 
         content,
-        timestamp: timestamp || Date.now()
+        timestamp: Date.now(), // Use server timestamp to avoid clock skew
+        clientInfo: clientInfo || { windowId: 'unknown' }
       };
     } else {
       // New format
       clipboardData = { 
         type, 
         content,
-        timestamp: timestamp || Date.now()
+        timestamp: Date.now(), // Use server timestamp to avoid clock skew
+        clientInfo: clientInfo || { windowId: 'unknown' }
       };
       
       // Preserve imageType if available
       if (type === 'image' && data.imageType) {
         clipboardData.imageType = data.imageType;
+      }
+      
+      // Preserve content hash if provided
+      if (data.contentHash) {
+        clipboardData.contentHash = data.contentHash;
       }
     }
     

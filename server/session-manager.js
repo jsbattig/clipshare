@@ -3,6 +3,22 @@
  * Handles session creation, joining, and authentication
  */
 
+// Simple hash function for content (for basic comparison)
+function hashContent(content) {
+  // For text content, use the text itself
+  if (typeof content === 'string') return content;
+  
+  if (typeof content === 'object') {
+    if (content.type === 'text') return content.content;
+    if (content.type === 'image') {
+      // For images, use first 100 chars of base64 as a representative sample
+      // This avoids hashing entire large images but still captures uniqueness
+      return content.content.substring(0, 100);
+    }
+  }
+  return JSON.stringify(content);
+}
+
 // Simple in-memory session storage
 const sessions = {};
 
@@ -131,6 +147,11 @@ function updateClipboardContent(sessionId, content, originClient) {
       if (content.type === 'image' && content.imageType) {
         newClipboard.imageType = content.imageType;
       }
+      
+      // Preserve client info if provided
+      if (content.clientInfo) {
+        newClipboard.clientInfo = content.clientInfo;
+      }
     } else {
       // Invalid content type
       return false;
@@ -139,6 +160,72 @@ function updateClipboardContent(sessionId, content, originClient) {
     // Invalid content format
     return false;
   }
+  
+  // Generate content hash - only of the actual content, not metadata
+  const contentHash = hashContent(newClipboard.type === 'text' ? newClipboard.content : newClipboard);
+  
+  // Initialize session tracking properties if they don't exist
+  if (!sessions[sessionId].contentHashes) {
+    sessions[sessionId].contentHashes = {};
+  }
+  
+  if (!sessions[sessionId].lastUpdateTime) {
+    sessions[sessionId].lastUpdateTime = Date.now();
+  }
+  
+  if (!sessions[sessionId].updateFrequency) {
+    sessions[sessionId].updateFrequency = [];
+  }
+  
+  // Check time-based constraints
+  const now = Date.now();
+  const timeSinceLastUpdate = now - sessions[sessionId].lastUpdateTime;
+  
+  // Check if we've seen this exact content hash recently
+  if (sessions[sessionId].contentHashes[contentHash]) {
+    const hashAge = now - sessions[sessionId].contentHashes[contentHash].timestamp;
+    
+    // If identical content was updated very recently (within 2 seconds)
+    // AND from a different client (potential ping-pong)
+    if (hashAge < 2000 && 
+        sessions[sessionId].contentHashes[contentHash].client !== originClient) {
+      console.log(`Preventing ping-pong: duplicate content from different client`);
+      return false;
+    }
+  }
+  
+  // Track update frequency for throttling
+  sessions[sessionId].updateFrequency.push(now);
+  
+  // Only keep the last 10 updates for calculating frequency
+  if (sessions[sessionId].updateFrequency.length > 10) {
+    sessions[sessionId].updateFrequency.shift();
+  }
+  
+  // Check if updates are happening too frequently (potential ping-pong)
+  // If we have 5+ updates in last 3 seconds
+  if (sessions[sessionId].updateFrequency.length >= 5) {
+    const oldestInWindow = sessions[sessionId].updateFrequency[0];
+    const timeWindow = now - oldestInWindow;
+    
+    if (timeWindow < 3000) {
+      // We're getting too many updates too quickly
+      // Only allow this update if significant time has passed since last one
+      if (timeSinceLastUpdate < 750) {
+        console.log(`Throttling updates: too frequent (${timeWindow}ms for 5 updates)`);
+        return false;
+      }
+    }
+  }
+  
+  // Store hash with timestamp for future comparisons
+  sessions[sessionId].contentHashes[contentHash] = {
+    timestamp: now,
+    client: originClient
+  };
+  
+  // Update session tracking state
+  sessions[sessionId].lastUpdateTime = now;
   
   // Only update if the new timestamp is newer or equal but from different client
   // This prevents race conditions and update loops
