@@ -39,13 +39,15 @@ graph TD
 
 #### Content Deduplication System
 - **Purpose**: Prevents circular updates between clients
-- **Design Pattern**: Hash-based equality with throttling
+- **Design Pattern**: Two-tier hash-based equality with OS awareness
 - **Key Components**:
   - Server-side content hash tracking with timestamps
   - Client-side window identification via sessionStorage
   - Multi-sample hashing for reliable image comparison
   - Normalized content comparison that ignores metadata
   - Specialized grace periods based on content type (longer for images)
+  - Cross-OS sync detection with different rules for different operating systems
+  - Two-tier content hashing that separates content identity from environment identity
 
 ### 3. Client-side Clipboard Monitor
 - **Purpose**: Detects local clipboard changes and applies remote changes
@@ -87,7 +89,10 @@ The application uses a well-defined WebSocket event system:
 ## Error Handling Strategy
 - **Network Disruptions**: Auto-reconnection with exponential backoff
 - **Authentication Failures**: Clear error messaging with redirect to login
-- **Clipboard API Errors**: Graceful degradation with manual clipboard controls
+- **Clipboard API Errors**: 
+  - Graceful degradation with manual clipboard controls
+  - Auto-disappearing error messages (5-second timeout)
+  - Contextual error handling based on error type
 - **Permissions Issues**: Clear guidance for clipboard permission requests
 - **Missing Functions**: Defensive coding to check if functions exist before calling
 

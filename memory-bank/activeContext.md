@@ -33,6 +33,14 @@ Initial implementation of the application with:
 - Enhanced the grace period system with content-type specific durations (longer for images)
 - Added detailed logging for tracking clipboard content changes
 
+**Cross-OS Fixes (May 1, 2025):**
+- Fixed cross-OS synchronization issues between Windows and Mac
+- Implemented two-tier content hashing system that handles OS-specific differences
+- Added special detection for legitimate cross-OS synchronization
+- Added auto-disappearing error messages (5-second timeout)
+- Enhanced debugging for cross-OS clipboard transfers
+- Reduced ping-pong detection window from 5s to 3s for images to improve cross-OS syncing
+
 ## Next Steps
 Immediate next steps for the project:
 
