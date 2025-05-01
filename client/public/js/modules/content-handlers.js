@@ -1,0 +1,265 @@
+/**
+ * ClipShare Content Handlers
+ * 
+ * Handles different content types (text, image, file) and their
+ * respective operations for clipboard synchronization.
+ */
+
+import { CONFIG } from './config.js';
+import { getElement, formatFileSize, getFileExtension } from './utils.js';
+import * as UIManager from './ui-manager.js';
+import * as ClipboardMonitor from './clipboard-monitor.js';
+
+// Module state
+let currentContentState = CONFIG.contentTypes.EMPTY;
+let sharedFile = null;
+
+/**
+ * Update the clipboard content in the UI and optionally send to server
+ * @param {Object|string} content - Clipboard content
+ * @param {boolean} sendToServer - Whether to send update to server
+ * @param {Function} sendUpdateFn - Function to send update to server
+ * @returns {Object} Processed content object
+ */
+export function updateClipboardContent(content, sendToServer = false, sendUpdateFn = null) {
+  // Reset UI copy button state
+  const copyBtn = getElement('copy-btn');
+  if (copyBtn) {
+    copyBtn.classList.remove('download-mode');
+    copyBtn.textContent = 'Copy';
+  }
+  
+  let clipboardData;
+  
+  // Process different content formats
+  if (typeof content === 'string') {
+    // Legacy string format - convert to object with text type
+    clipboardData = { 
+      type: 'text', 
+      content: content,
+      timestamp: Date.now()
+    };
+    
+    // Handle text content in UI
+    handleTextContent(content);
+    currentContentState = CONFIG.contentTypes.TEXT;
+    
+    // Update clipboard monitor state
+    ClipboardMonitor.updateContent(clipboardData);
+    
+  } else if (typeof content === 'object') {
+    // Object format with type field
+    clipboardData = content;
+    
+    // Make sure we have a timestamp
+    if (!clipboardData.timestamp) {
+      clipboardData.timestamp = Date.now();
+    }
+    
+    // Handle based on content type
+    if (content.type === 'text') {
+      handleTextContent(content.content);
+      currentContentState = CONFIG.contentTypes.TEXT;
+      
+    } else if (content.type === 'image') {
+      handleImageContent(content.content);
+      currentContentState = CONFIG.contentTypes.IMAGE;
+      
+    } else if (content.type === 'file') {
+      handleFileContent(content);
+      sharedFile = content;
+      currentContentState = CONFIG.contentTypes.FILE;
+    }
+    
+    // Update clipboard monitor state
+    ClipboardMonitor.updateContent(clipboardData);
+  }
+  
+  // Update content type indicator
+  UIManager.updateContentTypeIndicator(currentContentState);
+  
+  // Send to server if requested and callback provided
+  if (sendToServer && sendUpdateFn) {
+    sendUpdateFn(clipboardData);
+  }
+  
+  // Update last updated timestamp
+  UIManager.updateLastUpdated();
+  
+  return clipboardData;
+}
+
+/**
+ * Handle text content
+ * @param {string} text - Text content
+ */
+export function handleTextContent(text) {
+  UIManager.displayTextContent(text);
+}
+
+/**
+ * Handle image content
+ * @param {string} imageData - Base64 encoded image data
+ */
+export function handleImageContent(imageData) {
+  UIManager.displayImageContent(imageData);
+}
+
+/**
+ * Handle file content display
+ * @param {Object} fileData - File data object
+ */
+export function handleFileContent(fileData) {
+  UIManager.displayFileContent(fileData);
+}
+
+/**
+ * Copy current content to clipboard
+ */
+export async function copyToClipboard() {
+  try {
+    if (currentContentState === CONFIG.contentTypes.TEXT) {
+      await copyTextToClipboard();
+    } else if (currentContentState === CONFIG.contentTypes.IMAGE) {
+      await copyImageToClipboard();
+    } else if (currentContentState === CONFIG.contentTypes.FILE) {
+      downloadFile();
+    }
+  } catch (err) {
+    console.error('Copy failed:', err);
+    UIManager.displayMessage('Failed to copy: ' + (err.message || 'Unknown error'), 'error');
+    
+    // Last resort - prompt user to copy manually
+    UIManager.displayMessage('Please use system copy functionality to copy the content', 'info', 4000);
+  }
+}
+
+/**
+ * Copy text to clipboard
+ */
+async function copyTextToClipboard() {
+  const clipboardTextarea = getElement('clipboard-content');
+  if (!clipboardTextarea) {
+    throw new Error('Clipboard textarea not found');
+  }
+  
+  const content = clipboardTextarea.value;
+  
+  // Try modern Clipboard API first
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(content);
+      UIManager.displayMessage('Copied to clipboard', 'success', 2000);
+      return;
+    } catch (clipboardError) {
+      console.log('Clipboard write API failed, trying fallback...', clipboardError);
+      // Fall through to fallback if this fails
+    }
+  }
+  
+  // Fallback using execCommand
+  try {
+    // Select the text
+    clipboardTextarea.select();
+    // For mobile devices
+    clipboardTextarea.setSelectionRange(0, 99999);
+    
+    // Execute copy command
+    const success = document.execCommand('copy');
+    
+    if (success) {
+      UIManager.displayMessage('Copied to clipboard (fallback method)', 'success', 2000);
+    } else {
+      throw new Error('execCommand copy failed');
+    }
+  } catch (fallbackError) {
+    throw fallbackError; // Re-throw for the outer catch
+  }
+}
+
+/**
+ * Copy image to clipboard
+ */
+async function copyImageToClipboard() {
+  const clipboardImage = getElement('clipboard-image');
+  if (!clipboardImage) {
+    throw new Error('Clipboard image not found');
+  }
+  
+  // Try to copy the image
+  if (navigator.clipboard && window.ClipboardItem) {
+    try {
+      // Get the image data
+      const imageURL = clipboardImage.src;
+      const blob = await fetch(imageURL).then(r => r.blob());
+      
+      // Create a ClipboardItem
+      const clipboardItem = new ClipboardItem({
+        [blob.type]: blob
+      });
+      
+      // Write to clipboard
+      await navigator.clipboard.write([clipboardItem]);
+      UIManager.displayMessage('Image copied to clipboard', 'success', 2000);
+      return;
+    } catch (imgError) {
+      console.error('Image copy to clipboard failed:', imgError);
+      UIManager.displayMessage('Could not copy image to clipboard (browser limitation)', 'error', 3000);
+      throw imgError;
+    }
+  } else {
+    UIManager.displayMessage('Browser does not support copying images to clipboard', 'info', 3000);
+    throw new Error('Browser does not support ClipboardItem for images');
+  }
+}
+
+/**
+ * Download the current file
+ */
+export function downloadFile() {
+  if (!sharedFile || !sharedFile.content) {
+    UIManager.displayMessage('No file available to download', 'error', 3000);
+    return;
+  }
+  
+  try {
+    const fileName = sharedFile.fileName || 'download';
+    const linkEl = document.createElement('a');
+    linkEl.href = sharedFile.content;
+    linkEl.download = fileName;
+    
+    // Append to document temporarily
+    document.body.appendChild(linkEl);
+    linkEl.click();
+    document.body.removeChild(linkEl);
+    
+    UIManager.displayMessage(`Downloading: ${fileName}`, 'success', 3000);
+  } catch (err) {
+    console.error('Download failed:', err);
+    UIManager.displayMessage('Failed to download file: ' + err.message, 'error', 3000);
+  }
+}
+
+/**
+ * Get current content state
+ * @returns {string} Current content state
+ */
+export function getCurrentContentState() {
+  return currentContentState;
+}
+
+/**
+ * Get shared file
+ * @returns {Object|null} Current shared file
+ */
+export function getSharedFile() {
+  return sharedFile;
+}
+
+/**
+ * Set shared file
+ * @param {Object} fileData - File data to set as shared file
+ */
+export function setSharedFile(fileData) {
+  sharedFile = fileData;
+}
