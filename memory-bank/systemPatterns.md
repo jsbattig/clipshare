@@ -33,6 +33,19 @@ graph TD
   - Real-time broadcasting of clipboard changes
   - Efficient content diffing to reduce unnecessary updates
   - Conflict resolution (last update wins)
+  - Content hashing for deduplication
+  - Time-based throttling to prevent ping-pong effects
+  - Content-type specific handling (text vs images)
+
+#### Content Deduplication System
+- **Purpose**: Prevents circular updates between clients
+- **Design Pattern**: Hash-based equality with throttling
+- **Key Components**:
+  - Server-side content hash tracking with timestamps
+  - Client-side window identification via sessionStorage
+  - Multi-sample hashing for reliable image comparison
+  - Normalized content comparison that ignores metadata
+  - Specialized grace periods based on content type (longer for images)
 
 ### 3. Client-side Clipboard Monitor
 - **Purpose**: Detects local clipboard changes and applies remote changes
