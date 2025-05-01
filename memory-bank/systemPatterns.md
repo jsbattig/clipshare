@@ -21,6 +21,10 @@ graph TD
   - Session creation with passphrase authentication
   - In-memory storage of session data
   - Client tracking within sessions
+- **Authentication Storage**:
+  - Local persistence via localStorage
+  - **Standard Key: 'clipshare_session'** - Must be consistent across codebase
+  - JSON-formatted auth data: `{sessionId, passphrase, timestamp}`
 
 ### 2. Clipboard Synchronization Engine
 - **Purpose**: Monitors, broadcasts, and synchronizes clipboard changes
@@ -45,6 +49,10 @@ graph TD
   - Session persistence across page reloads
   - Join existing session with correct passphrase
   - Auto-reconnection on disconnects
+- **Critical Implementation Note**:
+  - Must consistently use 'clipshare_session' as the localStorage key
+  - Breaking this consistency causes authentication loops and session failures
+  - Avoid using variations (e.g., 'clipboard-session') to prevent confusion
 
 ## Communication Patterns
 
@@ -68,6 +76,18 @@ The application uses a well-defined WebSocket event system:
 - **Authentication Failures**: Clear error messaging with redirect to login
 - **Clipboard API Errors**: Graceful degradation with manual clipboard controls
 - **Permissions Issues**: Clear guidance for clipboard permission requests
+- **Missing Functions**: Defensive coding to check if functions exist before calling
+
+## Utility Functions
+
+### File Handling Utilities
+- **Purpose**: Support file-related operations with consistent patterns
+- **Design Pattern**: Pure utility functions with single responsibility
+- **Key Functions**:
+  - `getFileExtension(fileName, mimeType)` - Extracts extension from filename or falls back to mime type
+  - `getMimeTypeFromExtension(fileName)` - Maps file extensions to appropriate MIME types
+  - `formatFileSize(bytes)` - Formats byte counts to human-readable sizes with units
+  - `dataURLtoBlob(dataUrl)` - Converts Data URLs to Blob objects for clipboard operations
 
 ## Performance Considerations
 - **Efficient Content Diffing**: Only sync changes when content actually differs
@@ -79,6 +99,14 @@ The application uses a well-defined WebSocket event system:
 - **Passphrase Protection**: Simple but effective barrier for casual use
 - **No Persistence**: Clipboard data only stored in memory, not persisted to disk
 - **Frontend Security**: No clipboard content in URLs or exposed parameters
+
+## Code Stability Practices
+- **Stable Commit Reference**: db428d57 established as baseline for stable functionality
+- **Incremental Changes**: Make focused changes to address specific issues rather than broad refactoring
+- **Function Availability Checks**: Verify functions exist before calling them
+- **Consistent Key Naming**: Standardize localStorage key names across authentication flows
+- **Testing Before Merging**: Thoroughly test changes to authentication or core functionality before merging to main
+- **Git Rollback Procedure**: Document process for reverting to stable state when necessary
 
 ## Extensibility Points
 The system is designed with the following extension points:

@@ -42,7 +42,15 @@
 ### Authentication Limitations
 - **Simple Authentication**: Passphrase-based with no encryption
 - **Session Management**: Browser localStorage for persistence
+  - **Critical: Use consistent key name 'clipshare_session'**
+  - Mixing key names (e.g., 'clipboard-session') causes authentication loops
 - **No User Accounts**: Sessions exist only while active
+
+### Utility Function Dependencies
+- **File Handling Utilities**: Several critical functions must be implemented:
+  - `getFileExtension()` - For extracting file extensions
+  - `getMimeTypeFromExtension()` - For determining MIME types
+  - Failure to implement these causes application errors
 
 ## Development Environment
 
@@ -73,6 +81,14 @@ docker compose up -d
 - **Cross-Device Testing**: Verified on Windows, macOS, Linux
 - **Future Enhancements**: Add automated tests for core functionality
 
+## Code Stability
+- **Known Stable Commit**: db428d57 (May 1, 2025) - Verified working state
+- **Critical Areas to Test**:
+  - Authentication flow with localStorage
+  - File handling with utility functions
+  - Clipboard monitoring initialization
+- **Careful Changes**: Make incremental, focused changes with thorough testing
+
 ## Security Considerations
 
 ### Data Protection
@@ -84,6 +100,8 @@ docker compose up -d
 - **Passphrase Protection**: Simple barrier to entry
 - **No Encryption**: Passphrases and content transmitted without encryption
 - **Session Tokens**: Stored in browser localStorage
+  - JSON structure: `{sessionId, passphrase, timestamp}`
+  - Key name: 'clipshare_session'
 
 ### Network Security
 - **WebSocket Communication**: No built-in encryption
@@ -124,3 +142,20 @@ NODE_ENV=production npm start
 - **Scaling Limitations**: In-memory storage limits horizontal scaling
 - **Connection Overhead**: Each client maintains a WebSocket connection
 - **Network Traffic**: Proportional to clipboard update frequency and content size
+
+## Troubleshooting Common Issues
+
+### Authentication Loops
+- **Symptom**: Continuous redirection to login page
+- **Cause**: Inconsistent localStorage key names
+- **Solution**: Ensure all authentication code uses 'clipshare_session' consistently
+
+### JavaScript Errors on Startup
+- **Symptom**: "X is not defined" errors in browser console
+- **Cause**: Missing utility functions or incorrect initialization order
+- **Solution**: Ensure all referenced functions are implemented before they're called
+
+### File Handling Issues
+- **Symptom**: File dropping doesn't work, file type icons missing
+- **Cause**: Missing utility functions for file operations
+- **Solution**: Implement getFileExtension() and getMimeTypeFromExtension() functions

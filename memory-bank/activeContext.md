@@ -17,26 +17,44 @@ Initial implementation of the application with:
 - Docker and Docker Compose configuration
 - GitHub integration with Actions workflow
 
+**Recent Troubleshooting (May 1, 2025):**
+- Identified and diagnosed issues with localStorage key inconsistencies
+- Discovered that the application was using both 'clipboard-session' and 'clipshare_session' keys
+- Attempted to fix by standardizing on 'clipshare_session' across the codebase
+- Found additional issues with missing utility functions for file handling
+- Ultimately rolled back to commit db428d57 after fixes unintentionally broke functionality
+- Learned the importance of incremental, focused changes with thorough testing
+
 ## Next Steps
 Immediate next steps for the project:
 
-1. **Enhanced Browser Support**
+1. **Fix Authentication Key Inconsistency**
+   - Carefully implement standardized 'clipshare_session' localStorage key usage
+   - Test thoroughly across all authentication flows
+   - Ensure no regression of functionality
+
+2. **Utility Function Implementation**
+   - Add missing file utility functions: getFileExtension() and getMimeTypeFromExtension()
+   - Test file handling functionality
+   - Document these utility functions properly
+
+3. **Enhanced Browser Support**
    - Implement additional fallback methods for clipboard access
    - Test in more browser environments
 
-2. **Improved Error Handling**
+4. **Improved Error Handling**
    - Add more robust error handling for network disruptions
    - Enhance permission request workflow for clipboard access
 
-3. **Additional Content Type Support**
+5. **Additional Content Type Support**
    - Research and implement support for additional clipboard content types
    - Prioritize image support as next content type
 
-4. **UI Enhancements**
+6. **UI Enhancements**
    - Add clipboard history feature (limited entries)
    - Improve mobile experience
 
-5. **Security Enhancements**
+7. **Security Enhancements**
    - Add optional end-to-end encryption
    - Implement secure WebSocket connections
 
@@ -61,6 +79,11 @@ Simple passphrase-based approach chosen because:
 - Matches requirement for simplicity
 - No need for user accounts or database
 - Trade-off: Limited security for sensitive data
+
+### Code Stability and Rollbacks
+- Commit db428d57 has been established as the last known stable version
+- Future fixes will be implemented in smaller, more focused increments
+- Testing will be performed more thoroughly before pushing changes
 
 ## Important Patterns & Preferences
 
@@ -103,3 +126,11 @@ Learnings about WebSocket implementation:
 - Important to validate authentication on reconnection
 - Client connection tracking helps with UI status updates
 - Need to consider scalability for future enhancements
+
+### Code Stability and Change Management
+Key lessons from recent troubleshooting:
+- Seemingly minor changes (like localStorage key names) can have cascading effects
+- Missing utility functions can break functionality in non-obvious ways
+- When implementing fixes, focus on one issue at a time with comprehensive testing
+- Having a reliable rollback point is crucial for maintaining application stability
+- Git force-push can be a necessary tool when reverting to a stable state
