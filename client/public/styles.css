@@ -225,12 +225,53 @@ button:hover {
 
 .clipboard-container {
   margin-bottom: 15px;
+  position: relative;
 }
 
 #clipboard-content {
   min-height: 150px;
   resize: vertical;
   padding: 15px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#image-container {
+  margin-top: 10px;
+  text-align: center;
+  padding: 10px;
+  border: 1px dashed var(--border-color);
+  border-radius: 4px;
+  background-color: #f9f9f9;
+}
+
+#image-container.hidden {
+  display: none;
+}
+
+#clipboard-image {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  margin-bottom: 10px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.image-info {
+  font-size: 0.9em;
+  color: var(--text-light);
+  font-style: italic;
+}
+
+.thumbnail-indicator {
+  display: inline-block;
+  background-color: var(--primary-color);
+  color: white;
+  font-size: 0.7em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin-left: 5px;
 }
 
 .clipboard-info {

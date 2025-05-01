@@ -19,6 +19,8 @@ const sessionNameEl = document.getElementById('session-name');
 const connectionStatusEl = document.getElementById('connection-status');
 const clientCountEl = document.getElementById('client-count');
 const clipboardTextarea = document.getElementById('clipboard-content');
+const imageContainer = document.getElementById('image-container');
+const clipboardImage = document.getElementById('clipboard-image');
 const copyBtn = document.getElementById('copy-btn');
 const clearBtn = document.getElementById('clear-btn');
 const refreshBtn = document.getElementById('refresh-btn');
@@ -35,10 +37,12 @@ let isConnected = false;
 let isMonitoring = true;
 let pollingInterval = null;
 let lastClipboardContent = '';
+let lastClipboardType = 'text'; // Track content type (text/image)
 let clientCount = 1; // Including current client
 let isUserTyping = false; // Track when user is typing
 let typingTimer = null; // Timer for typing detection
 const typingTimeout = 3000; // 3 seconds before resuming polling
+const maxImageSize = 800; // Maximum size for images before thumbnailing
 
 // Check if user is authenticated
 document.addEventListener('DOMContentLoaded', () => {
@@ -167,10 +171,23 @@ function setupEventListeners() {
     clearTimeout(typingTimer);
     
     const newContent = clipboardTextarea.value;
-    lastClipboardContent = newContent;
     
-    // Send update to server
-    sendClipboardUpdate(newContent);
+    // If we were showing an image, hide it when user starts typing
+    if (lastClipboardType === 'image' && !imageContainer.classList.contains('hidden')) {
+      // Hide the image container
+      imageContainer.classList.add('hidden');
+      // Reset the placeholder
+      clipboardTextarea.placeholder = "Clipboard content will appear here. Type or paste content to share it with all connected devices.";
+      // Update the type
+      lastClipboardType = 'text';
+      displayMessage('Switched to text mode', 'info', 2000);
+    }
+    
+    // Update last known content
+    lastClipboardContent = { type: 'text', content: newContent };
+    
+    // Send update to server as text type
+    sendClipboardUpdate({ type: 'text', content: newContent });
     
     // Update UI
     updateSyncStatus('Synchronized');
@@ -196,6 +213,13 @@ function setupEventListeners() {
   clipboardTextarea.addEventListener('focus', () => {
     isUserTyping = true;
     clearTimeout(typingTimer);
+    
+    // If we currently have an image displayed and user focuses on textarea,
+    // prepare to switch to text mode when they start typing
+    if (lastClipboardType === 'image' && !imageContainer.classList.contains('hidden')) {
+      // We don't hide the image yet, but we'll hide it as soon as typing begins
+      clipboardTextarea.placeholder = "Start typing to replace the image...";
+    }
   });
   
   clipboardTextarea.addEventListener('blur', () => {
@@ -244,22 +268,31 @@ function startClipboardMonitoring() {
     if (!isMonitoring || isUserTyping) return;
     
     try {
-      const clipboardText = await readFromClipboard();
+      const clipboardData = await readFromClipboard();
+      
+      // Compare based on type and content
+      let contentChanged = false;
+      
+      if (typeof lastClipboardContent === 'string' && typeof clipboardData === 'object') {
+        // Old format vs new format
+        contentChanged = true;
+      } else if (typeof lastClipboardContent === 'object' && typeof clipboardData === 'object') {
+        // Both object format
+        contentChanged = 
+          lastClipboardContent.type !== clipboardData.type || 
+          lastClipboardContent.content !== clipboardData.content;
+      } else {
+        // Simple string comparison (legacy)
+        contentChanged = clipboardData !== lastClipboardContent;
+      }
       
       // If content changed and not already synced
-      if (clipboardText !== lastClipboardContent) {
-        // Update last known content
-        lastClipboardContent = clipboardText;
+      if (contentChanged) {
+        // Update content in UI
+        updateClipboardContent(clipboardData, true);
         
-        // Update textarea
-        clipboardTextarea.value = clipboardText;
-        
-        // Send to server
-        sendClipboardUpdate(clipboardText);
-        
-        // Update UI
+        // Update UI status
         updateSyncStatus('Synchronized');
-        updateLastUpdated();
       }
     } catch (err) {
       console.error('Error reading clipboard:', err);
@@ -283,20 +316,65 @@ function stopClipboardMonitoring() {
 /**
  * Read from clipboard using multiple methods
  * Tries different approaches for better browser compatibility
+ * Attempts to detect both text and image content
  */
 async function readFromClipboard() {
   try {
-    // Method 1: Modern Clipboard API (most browsers with HTTPS)
-    if (navigator.clipboard && navigator.clipboard.readText) {
+    // First try the modern clipboard API to check for images
+    if (navigator.clipboard && navigator.clipboard.read) {
       try {
-        return await navigator.clipboard.readText();
+        // This can read both text and images
+        const clipboardItems = await navigator.clipboard.read();
+        
+        // Check for images first
+        for (const item of clipboardItems) {
+          // Check if image type is available
+          if (item.types.some(type => type.startsWith('image/'))) {
+            const imageType = item.types.find(type => type.startsWith('image/'));
+            const blob = await item.getType(imageType);
+            // Convert blob to base64 for transmission
+            const base64Image = await blobToBase64(blob);
+            
+            // Set content type to image
+            lastClipboardType = 'image';
+            
+            // Return image data in the correct format
+            return {
+              type: 'image',
+              content: base64Image,
+              imageType
+            };
+          }
+        }
+        
+        // If we get here, no image was found, try text
+        const text = await navigator.clipboard.readText();
+        lastClipboardType = 'text';
+        return {
+          type: 'text',
+          content: text
+        };
       } catch (clipboardApiError) {
-        console.log('Clipboard API failed, trying fallback...', clipboardApiError);
-        // Continue to fallbacks if permission denied or other error
+        console.log('Modern Clipboard API failed, trying text fallback...', clipboardApiError);
+        // Continue to text fallbacks
       }
     }
     
-    // Method 2: execCommand approach (older browsers)
+    // Try text-only methods
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      try {
+        const text = await navigator.clipboard.readText();
+        lastClipboardType = 'text';
+        return {
+          type: 'text',
+          content: text
+        };
+      } catch (textReadError) {
+        console.log('Text clipboard read failed, trying execCommand...', textReadError);
+      }
+    }
+    
+    // Method 2: execCommand approach (older browsers, text only)
     const textarea = document.createElement('textarea');
     textarea.style.position = 'fixed';
     textarea.style.opacity = '0';
@@ -313,6 +391,11 @@ async function readFromClipboard() {
       success = document.execCommand('paste');
       if (success) {
         text = textarea.value;
+        lastClipboardType = 'text';
+        return {
+          type: 'text',
+          content: text
+        };
       }
     } catch (execError) {
       console.log('execCommand approach failed', execError);
@@ -320,16 +403,32 @@ async function readFromClipboard() {
       document.body.removeChild(textarea);
     }
     
-    if (success && text) {
-      return text;
-    }
-    
-    // If we get here, both methods failed
+    // If we get here, all methods failed
     throw new Error('Clipboard API not supported');
   } catch (err) {
     console.error('Failed to read clipboard:', err);
     throw err;
   }
+}
+
+/**
+ * Convert Blob to base64 string
+ */
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Check if an image is oversized and should be displayed as thumbnail
+ */
+function isOversizedImage(imageElement) {
+  return imageElement.naturalWidth > maxImageSize || 
+         imageElement.naturalHeight > maxImageSize;
 }
 
 /**
@@ -389,17 +488,43 @@ function sendClipboardUpdate(content) {
 
 /**
  * Update clipboard content in the UI and optionally send to server
+ * @param {Object|string} content - Clipboard content (object with type/content or legacy string)
+ * @param {boolean} sendToServer - Whether to send update to server
  */
 function updateClipboardContent(content, sendToServer = false) {
-  // Update textarea
-  clipboardTextarea.value = content;
-  
-  // Update last known content
-  lastClipboardContent = content;
-  
-  // Optionally send to server
-  if (sendToServer) {
-    sendClipboardUpdate(content);
+  // Handle different content formats
+  if (typeof content === 'string') {
+    // Legacy string format - treat as text
+    handleTextContent(content);
+    
+    // Update last known content
+    lastClipboardContent = content;
+    lastClipboardType = 'text';
+    
+    // Optionally send to server (legacy format)
+    if (sendToServer) {
+      sendClipboardUpdate(content);
+    }
+  } 
+  else if (typeof content === 'object') {
+    // New object format with type
+    if (content.type === 'text') {
+      // Handle text content
+      handleTextContent(content.content);
+      lastClipboardType = 'text';
+      lastClipboardContent = content;
+    } 
+    else if (content.type === 'image') {
+      // Handle image content
+      handleImageContent(content.content, content.imageType);
+      lastClipboardType = 'image';
+      lastClipboardContent = content;
+    }
+    
+    // Optionally send to server (new format)
+    if (sendToServer) {
+      sendClipboardUpdate(content);
+    }
   }
   
   // Update timestamp
@@ -407,12 +532,70 @@ function updateClipboardContent(content, sendToServer = false) {
 }
 
 /**
- * Update the "last updated" timestamp
+ * Handle text content
+ * @param {string} text - Text content
  */
-function updateLastUpdated() {
-  const now = new Date();
-  const timeString = now.toLocaleTimeString();
-  lastUpdateEl.textContent = `Last update: ${timeString}`;
+function handleTextContent(text) {
+  // Show textarea, hide image
+  clipboardTextarea.value = text;
+  clipboardTextarea.classList.remove('hidden');
+  imageContainer.classList.add('hidden');
+}
+
+/**
+ * Handle image content
+ * @param {string} imageData - Base64 encoded image data
+ * @param {string} imageType - MIME type of the image
+ */
+function handleImageContent(imageData, imageType) {
+  // Show image, empty textarea but keep it visible for optional text
+  clipboardTextarea.value = '';
+  imageContainer.classList.remove('hidden');
+  clipboardImage.src = imageData;
+  
+  // When image loads, check if it needs to be shown as thumbnail
+  clipboardImage.onload = () => {
+    const isThumbnailed = isOversizedImage(clipboardImage);
+    
+    // Get the image info element
+    const imageInfoEl = imageContainer.querySelector('.image-info');
+    
+    // Update image info text
+    if (isThumbnailed) {
+      // Add thumbnail indicator
+      if (!imageInfoEl.querySelector('.thumbnail-indicator')) {
+        const thumbnailIndicator = document.createElement('span');
+        thumbnailIndicator.className = 'thumbnail-indicator';
+        thumbnailIndicator.textContent = 'Large image (thumbnailed)';
+        imageInfoEl.appendChild(thumbnailIndicator);
+      }
+    } else {
+      // Remove thumbnail indicator if exists
+      const thumbnailIndicator = imageInfoEl.querySelector('.thumbnail-indicator');
+      if (thumbnailIndicator) {
+        imageInfoEl.removeChild(thumbnailIndicator);
+      }
+    }
+  };
+}
+
+/**
+ * Send clipboard update to server
+ * @param {Object|string} content - Clipboard content
+ */
+function sendClipboardUpdate(content) {
+  if (!isConnected) return;
+  
+  // If content is a string (legacy), convert to object format
+  if (typeof content === 'string') {
+    socket.emit('clipboard-update', { 
+      type: 'text',
+      content 
+    });
+  } else {
+    // Content is already in the correct format
+    socket.emit('clipboard-update', content);
+  }
 }
 
 /**
@@ -496,17 +679,23 @@ socket.on('connect_error', () => {
 
 // Handle clipboard updates from other clients
 socket.on('clipboard-broadcast', (data) => {
-  const { content } = data;
-  
   // Update local clipboard content
-  updateClipboardContent(content, false);
+  updateClipboardContent(data, false);
   
   // Optionally write to system clipboard
   if (isMonitoring) {
     try {
-      navigator.clipboard.writeText(content).catch(err => {
-        console.error('Error writing to clipboard:', err);
-      });
+      if (data.type === 'text') {
+        // Text can be written directly
+        navigator.clipboard.writeText(data.content).catch(err => {
+          console.error('Error writing text to clipboard:', err);
+        });
+      } else if (data.type === 'image') {
+        // Images are more complex to write to system clipboard
+        // Most browsers don't support writing images to clipboard programmatically
+        // Just notify user that an image is available
+        displayMessage('Image received - view in app', 'info', 3000);
+      }
     } catch (err) {
       console.error('Failed to access clipboard API:', err);
     }
@@ -516,7 +705,8 @@ socket.on('clipboard-broadcast', (data) => {
   updateSyncStatus('Updated from another device');
   updateLastUpdated();
   
-  displayMessage('Clipboard updated from another device', 'info', 2000);
+  const contentTypeMsg = data.type === 'image' ? 'Image' : 'Text';
+  displayMessage(`${contentTypeMsg} clipboard updated from another device`, 'info', 2000);
 });
 
 // Handle client join/leave events

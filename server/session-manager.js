@@ -35,7 +35,10 @@ function joinSession(sessionId, passphrase) {
     // Create new session
     sessions[normalizedSessionId] = {
       passphrase,
-      clipboard: '',
+      clipboard: {
+        type: 'text',
+        content: ''
+      },
       createdAt: new Date(),
       clients: []
     };
@@ -51,19 +54,42 @@ function joinSession(sessionId, passphrase) {
 /**
  * Get the current clipboard content for a session
  * @param {string} sessionId - The session identifier
- * @returns {string} Current clipboard content or empty string
+ * @returns {Object} Current clipboard object with type and content
  */
 function getClipboardContent(sessionId) {
-  return sessions[sessionId]?.clipboard || '';
+  if (!sessions[sessionId]) {
+    return { type: 'text', content: '' };
+  }
+  
+  // Handle backward compatibility with old format (string only)
+  if (typeof sessions[sessionId].clipboard === 'string') {
+    // Migrate old format to new format
+    sessions[sessionId].clipboard = {
+      type: 'text',
+      content: sessions[sessionId].clipboard
+    };
+  }
+  
+  return sessions[sessionId].clipboard;
 }
 
 /**
  * Update the clipboard content for a session
  * @param {string} sessionId - The session identifier
- * @param {string} content - New clipboard content
+ * @param {Object|string} content - New clipboard content (object with type and content or legacy string)
  */
 function updateClipboardContent(sessionId, content) {
-  if (sessions[sessionId]) {
+  if (!sessions[sessionId]) return;
+  
+  // Handle different input formats
+  if (typeof content === 'string') {
+    // Legacy format - convert to object
+    sessions[sessionId].clipboard = {
+      type: 'text',
+      content: content
+    };
+  } else if (typeof content === 'object' && (content.type === 'text' || content.type === 'image')) {
+    // New format - typed content
     sessions[sessionId].clipboard = content;
   }
 }

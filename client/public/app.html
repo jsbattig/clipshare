@@ -29,10 +29,14 @@
                 <div class="clipboard-controls">
                     <button id="copy-btn" title="Copy to clipboard">Copy</button>
                     <button id="clear-btn" title="Clear content">Clear</button>
-                    <button id="refresh-btn" title="Refresh from clipboard">Refresh</button>
+                    <button id="refresh-btn" title="Paste from clipboard">Paste</button>
                 </div>
                 <div class="clipboard-container">
                     <textarea id="clipboard-content" placeholder="Clipboard content will appear here. Type or paste content to share it with all connected devices."></textarea>
+                    <div id="image-container" class="hidden">
+                        <img id="clipboard-image" alt="Clipboard image content">
+                        <div class="image-info">Image in clipboard</div>
+                    </div>
                 </div>
                 
                 <div class="clipboard-info">

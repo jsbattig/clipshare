@@ -87,20 +87,25 @@ io.on('connection', (socket) => {
   
   // Handle clipboard updates
   socket.on('clipboard-update', (data) => {
-    const { content } = data;
+    const { content, type = 'text' } = data;
     const { sessionId } = socket;
     
     if (!sessionId) {
       return; // Client not authenticated
     }
     
+    // Create properly formatted clipboard data
+    const clipboardData = typeof content === 'string' && !type ? 
+      { type: 'text', content } : // Legacy format
+      { type, content };          // New format
+    
     // Update clipboard content in session
-    sessionManager.updateClipboardContent(sessionId, content);
+    sessionManager.updateClipboardContent(sessionId, clipboardData);
     
     // Broadcast to all other clients in the session
-    socket.to(sessionId).emit('clipboard-broadcast', { content });
+    socket.to(sessionId).emit('clipboard-broadcast', clipboardData);
     
-    console.log(`Clipboard updated in session ${sessionId}`);
+    console.log(`Clipboard updated (${type}) in session ${sessionId}`);
   });
   
   // Handle client disconnect
