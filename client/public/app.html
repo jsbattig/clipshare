@@ -10,6 +10,9 @@
     <script src="clipboard.js" defer></script>
 </head>
 <body>
+    <!-- Global modal overlay for drop zone -->
+    <div class="modal-overlay hidden" id="global-overlay"></div>
+
     <div class="container">
         <header>
             <h1>ClipShare</h1>
@@ -25,6 +28,7 @@
             
             <div id="app-message" class="message hidden"></div>
             
+            <!-- Clipboard Section -->
             <div class="clipboard-section">
                 <h3>Current Clipboard Content</h3>
                 <div class="clipboard-controls">
@@ -34,11 +38,8 @@
                 </div>
                 <div id="content-type-status" class="content-status hidden">
                     <div class="status-icon"></div>
-                    <div class="status-text">Remote clipboard contains: <span id="content-type">Text</span></div>
+                    <div class="status-text">Clipboard contains: <span id="content-type">Text</span></div>
                 </div>
-                
-                <!-- Modal overlay for drop zone -->
-                <div class="modal-overlay hidden"></div>
                 
                 <div class="clipboard-container">
                     <div id="clipboard-diff-banner" class="notification-banner hidden">
@@ -52,6 +53,26 @@
                         <img id="clipboard-image" alt="Clipboard image content">
                         <div class="image-info">Image in clipboard</div>
                     </div>
+                </div>
+                
+                <div class="clipboard-info">
+                    <p id="sync-status">Synchronized</p>
+                    <p id="last-update">Last update: Never</p>
+                </div>
+            </div>
+            
+            <!-- File Sharing Section (Separate from Clipboard) -->
+            <div class="file-sharing-section">
+                <h3>Shared Files</h3>
+                <div class="file-controls">
+                    <button id="share-file-btn" title="Share a file with connected devices">Share File</button>
+                </div>
+                
+                <div id="file-container" class="file-container">
+                    <div id="empty-file-state" class="empty-file-state">
+                        <p>No files currently shared</p>
+                        <p class="file-info-text">Drag & drop files here or click "Share File" to upload</p>
+                    </div>
                     
                     <div id="file-banner" class="file-banner hidden">
                         <div class="file-icon-container">
@@ -63,34 +84,31 @@
                             <span class="file-type" id="clipboard-file-mime">file/unknown</span>
                         </div>
                         <div class="banner-message">
-                            File detected in clipboard.
+                            File shared with all devices
                         </div>
-                    </div>
-                    
-                    <div id="drop-zone" class="hidden">
-                        <div class="drop-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="#3498db"/>
-                            </svg>
-                        </div>
-                        <div class="drop-message">
-                            <p class="primary">Drop file(s) here</p>
-                            <p class="secondary">Single or multiple files accepted</p>
-                        </div>
-                        <button class="close-drop-zone">×</button>
-                    </div>
-                    
-                    <div id="multi-file-indicator" class="hidden">
-                        <div class="file-count-badge">0 files</div>
-                        <div class="archive-info">Will be shared as ZIP archive</div>
-                        <button class="create-zip-btn">Create ZIP & Share</button>
+                        <button id="download-file-btn" class="download-btn">Download</button>
                     </div>
                 </div>
-                
-                <div class="clipboard-info">
-                    <p id="sync-status">Synchronized</p>
-                    <p id="last-update">Last update: Never</p>
+            </div>
+            
+            <!-- Drop Zone (Now positioned absolutely to the viewport) -->
+            <div id="drop-zone" class="hidden">
+                <div class="drop-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="#3498db"/>
+                    </svg>
                 </div>
+                <div class="drop-message">
+                    <p class="primary">Drop file(s) here</p>
+                    <p class="secondary">Single or multiple files accepted</p>
+                </div>
+                <button class="close-drop-zone">×</button>
+            </div>
+            
+            <div id="multi-file-indicator" class="hidden">
+                <div class="file-count-badge">0 files</div>
+                <div class="archive-info">Will be shared as ZIP archive</div>
+                <button class="create-zip-btn">Create ZIP & Share</button>
             </div>
             
             <div class="monitoring-section">

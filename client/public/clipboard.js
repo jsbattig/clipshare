@@ -95,6 +95,10 @@ const syncStatusEl = document.getElementById('sync-status');
 const lastUpdateEl = document.getElementById('last-update');
 const logoutBtn = document.getElementById('logout-btn');
 const appMessage = document.getElementById('app-message');
+const globalOverlay = document.getElementById('global-overlay');
+const emptyFileState = document.getElementById('empty-file-state');
+const downloadFileBtn = document.getElementById('download-file-btn');
+const shareFileBtn = document.getElementById('share-file-btn');
 
 // Content type constants
 const CONTENT_STATES = {
@@ -121,6 +125,7 @@ let lastSyncAttemptTime = 0; // Track when we last tried to sync to avoid freque
 let currentContentState = CONTENT_STATES.EMPTY; // Current type of content in clipboard
 let fileTransferInProgress = false; // Flag to track if a file transfer is in progress
 let droppedFiles = []; // Store dropped files at module scope
+let sharedFile = null; // Store shared file separately from clipboard
 const typingTimeout = 3000; // 3 seconds before resuming polling
 const syncGracePeriodDuration = 3000; // 3 seconds grace period after receiving updates (increased from 500ms)
 const minTimeBetweenSyncs = 2000; // Minimum time between sync attempts
@@ -180,7 +185,9 @@ function setupVisibilityDetection() {
 async function refreshFromClipboard() {
   try {
     const clipboardText = await readFromClipboard();
-    if (clipboardText !== lastClipboardContent) {
+    
+    // Only update if we actually get a value and it's different
+    if (clipboardText && clipboardText !== lastClipboardContent) {
       updateClipboardContent(clipboardText, true);
     }
   } catch (err) {
@@ -276,21 +283,32 @@ function setupEventListeners() {
     clipboardTextarea.focus();
   });
   
+  // Share File button click
+  shareFileBtn.addEventListener('click', () => {
+    showDropZone('Drop file(s) to share with all devices');
+  });
+  
+  // Download File button click (in shared files section)
+  if (downloadFileBtn) {
+    downloadFileBtn.addEventListener('click', () => {
+      if (sharedFile) {
+        downloadSharedFile(sharedFile);
+      }
+    });
+  }
+  
   // Refresh/Paste button click
   refreshBtn.addEventListener('click', async () => {
     try {
       const clipboardContent = await readFromClipboard();
       
-      // If content is a file, show confirmation before sending
-      if (clipboardContent && clipboardContent.type === 'file') {
-        showFileTransferConfirmation(clipboardContent);
-      } else if (clipboardContent && clipboardContent.fileDetectedButInaccessible) {
-        // If we detected files but can't access them, show drop zone
-        showDropZone('File detected in clipboard - Please drag and drop to share');
-      } else {
-        // Handle other content types normally
+      // Only handle text and image content types - files use the drop zone
+      if (clipboardContent && (clipboardContent.type === 'text' || clipboardContent.type === 'image')) {
         updateClipboardContent(clipboardContent, true);
         displayMessage('Clipboard refreshed', 'info', 2000);
+      } else {
+        // If a file is detected or we can't determine the type, show drop zone
+        showDropZone('Please drag & drop files to share them');
       }
     } catch (err) {
       // If any error occurs, try showing drop zone as fallback
@@ -340,6 +358,15 @@ function setupEventListeners() {
   dropZone.addEventListener('dragleave', () => {
     dropZone.classList.remove('drag-active');
   });
+  
+  // Make file container droppable too
+  const fileContainerEl = document.getElementById('file-container');
+  if (fileContainerEl) {
+    fileContainerEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      showDropZone('Drop file(s) here to share');
+    });
+  }
   
   // Handle the drop event
   dropZone.addEventListener('drop', (e) => {
@@ -486,6 +513,15 @@ function startClipboardMonitoring() {
     try {
       const clipboardData = await readFromClipboard();
       
+      // Skip processing if the clipboard API didn't return anything
+      if (!clipboardData) return;
+      
+      // Skip file detection in clipboard monitoring
+      if (clipboardData.type === 'file') {
+        console.log('File detected in clipboard but ignoring - use drop zone instead');
+        return;
+      }
+      
       // Add timestamp to clipboard data if it doesn't have one
       if (typeof clipboardData === 'object' && !clipboardData.timestamp) {
         clipboardData.timestamp = Date.now();
@@ -493,18 +529,37 @@ function startClipboardMonitoring() {
       
       // Compare based on type and content
       let contentChanged = false;
+      let isContentSame = false;
       
       if (typeof lastClipboardContent === 'string' && typeof clipboardData === 'object') {
         // Old format vs new format
-        contentChanged = true;
+        if (clipboardData.type === 'text' && clipboardData.content === lastClipboardContent) {
+          isContentSame = true;
+        } else {
+          contentChanged = true;
+        }
       } else if (typeof lastClipboardContent === 'object' && typeof clipboardData === 'object') {
-        // Both object format
-        contentChanged = 
-          lastClipboardContent.type !== clipboardData.type || 
-          lastClipboardContent.content !== clipboardData.content;
+        // Both object format - check if content is the same regardless of timestamp
+        if (lastClipboardContent.type === clipboardData.type) {
+          if (lastClipboardContent.type === 'text' && 
+              lastClipboardContent.content === clipboardData.content) {
+            isContentSame = true;
+          } else if (lastClipboardContent.type === 'image' && 
+                     lastClipboardContent.content === clipboardData.content) {
+            isContentSame = true;
+          }
+        }
+        
+        // Only mark as changed if content is actually different
+        contentChanged = !isContentSame;
       } else {
         // Simple string comparison (legacy)
         contentChanged = clipboardData !== lastClipboardContent;
+      }
+      
+      // Skip if content is the same to prevent ping-pong updates
+      if (isContentSame) {
+        return;
       }
       
       // Skip if we recently received content from another device (within grace period)
@@ -657,7 +712,7 @@ function getMimeTypeFromExtension(fileName) {
 /**
  * Read from clipboard using multiple methods
  * Tries different approaches for better browser compatibility
- * Attempts to detect text, image, and file content
+ * Attempts to detect text and images only (not files)
  */
 async function readFromClipboard() {
   try {
@@ -665,7 +720,7 @@ async function readFromClipboard() {
     const operatingSystem = detectOperatingSystem();
     console.log(`Detected operating system: ${operatingSystem}`);
     
-    // First try the modern clipboard API to check for images and files
+    // First try the modern clipboard API to check for images
     if (navigator.clipboard && navigator.clipboard.read) {
       try {
         // This can read multiple content types
@@ -696,94 +751,12 @@ async function readFromClipboard() {
             };
           }
           
-          // Check for files (cross-platform detection)
-          // Windows: Files, FileContents, etc.
-          // Mac: public.file-url, etc.
-          // Linux: text/uri-list, etc.
-          // General: application/*, etc.
-          const isFile = item.types.some(type => 
-            // Windows formats
-            type === 'Files' || 
-            type.includes('FileContents') ||
-            type.includes('FileGroupDescriptor') ||
-            // Mac formats
-            type === 'public.file-url' ||
-            type.includes('pasteboard.promised-file') ||
-            // Linux formats
-            type === 'text/uri-list' ||
-            type.includes('gnome-copied-files') ||
-            // Generic application formats
-            type === 'application/pdf' ||
-            type.includes('application/') && !type.includes('json') && !type.includes('javascript')
-          );
-          
-          if (isFile) {
-            console.log('File detected in clipboard');
-            
-            // Determine best format to extract based on OS
-            let fileFormat;
-            let fileContent;
-            let fileName = 'clipboard-file';
-            let fileType = 'application/octet-stream';
-            let fileSize = 0;
-            
-            // Extract file information based on available formats
-            if (item.types.includes('application/pdf')) {
-              fileFormat = 'application/pdf';
-              fileName = 'clipboard-document.pdf';
-              fileType = 'application/pdf';
-            } 
-            else if (operatingSystem === 'windows' && item.types.includes('Files')) {
-              fileFormat = 'Files';
-            }
-            else if (operatingSystem === 'mac' && item.types.includes('public.file-url')) {
-              fileFormat = 'public.file-url';
-            }
-            else if (item.types.some(t => t.startsWith('application/'))) {
-              fileFormat = item.types.find(t => t.startsWith('application/'));
-              
-              // Try to determine file extension from type
-              const formatParts = fileFormat.split('/');
-              if (formatParts.length > 1) {
-                const extension = formatParts[1].split('+')[0].split('-')[0];
-                if (extension && extension !== 'octet' && extension !== 'stream') {
-                  fileName = `clipboard-file.${extension}`;
-                  fileType = fileFormat;
-                }
-              }
-            }
-            else {
-              // Use first available format
-              fileFormat = item.types[0];
-            }
-            
-            console.log(`Attempting to extract file with format: ${fileFormat}`);
-            
-            try {
-              // Get file content as blob
-              const blob = await item.getType(fileFormat);
-              fileSize = blob.size;
-              fileContent = await blobToBase64(blob);
-              
-              console.log(`Successfully extracted file: ${fileName}, ${formatFileSize(fileSize)}`);
-              
-              // Return file data
-              return {
-                type: 'file',
-                fileName,
-                fileSize,
-                fileType,
-                fileContent
-              };
-            } catch (fileError) {
-              console.error('Error extracting file from clipboard:', fileError);
-              // Continue to other formats if file extraction fails
-            }
-          }
+          // We're not handling files via clipboard monitoring
+          // to keep things simple and avoid duplicate file sharing logic
         }
         
-        // If we get here, no image or file was found, try text
-        console.log('No image or file found, trying text');
+        // If we get here, no image was found, try text
+        console.log('No image found, trying text');
         const text = await navigator.clipboard.readText();
         lastClipboardType = 'text';
         return {
@@ -969,8 +942,57 @@ async function copyToClipboard() {
   }
 }
 
-// Function removed to fix duplicate definition
-// The correct implementation is defined later in the file
+/**
+ * Show drop zone for file drag-and-drop
+ * @param {string} message - Optional custom message to display
+ */
+function showDropZone(message) {
+  const dropZone = document.getElementById('drop-zone');
+  const primaryMsg = dropZone.querySelector('.primary');
+  const overlay = document.getElementById('global-overlay');
+  
+  // Update message if provided
+  if (message && primaryMsg) {
+    primaryMsg.textContent = message;
+  }
+  
+  // Show global overlay and drop zone
+  overlay.classList.remove('hidden');
+  dropZone.classList.remove('hidden');
+  
+  // Reset the file selection
+  droppedFiles = [];
+  updateFileCountDisplay();
+}
+
+/**
+ * Hide drop zone
+ */
+function hideDropZone() {
+  const dropZone = document.getElementById('drop-zone');
+  const multiFileIndicator = document.getElementById('multi-file-indicator');
+  const overlay = document.getElementById('global-overlay');
+  
+  // Hide drop zone, overlay, and multi-file indicator
+  dropZone.classList.add('hidden');
+  overlay.classList.add('hidden');
+  multiFileIndicator.classList.add('hidden');
+}
+
+/**
+ * Update file count display in multi-file indicator
+ */
+function updateFileCountDisplay() {
+  const multiFileIndicator = document.getElementById('multi-file-indicator');
+  const fileCountBadge = multiFileIndicator.querySelector('.file-count-badge');
+  
+  if (droppedFiles.length > 0) {
+    fileCountBadge.textContent = `${droppedFiles.length} files`;
+    multiFileIndicator.classList.remove('hidden');
+  } else {
+    multiFileIndicator.classList.add('hidden');
+  }
+}
 
 /**
  * Update clipboard content in the UI and optionally send to server
@@ -1025,11 +1047,14 @@ function updateClipboardContent(content, sendToServer = false) {
     else if (content.type === 'file') {
       // Handle file content
       handleFileContent(content);
-      lastClipboardType = 'file';
-      lastClipboardContent = content;
-      currentContentState = CONTENT_STATES.FILE;
       
-      // Update content type indicator
+      // Don't store file content in clipboard anymore, but in separate shared file state
+      sharedFile = content;
+      
+      // Keep the clipboard state focused on text/image as appropriate
+      // Instead of changing lastClipboardType to 'file'
+      
+      // Update content type indicator for the file section
       updateContentTypeIndicator(CONTENT_STATES.FILE);
     }
     
@@ -1191,130 +1216,44 @@ function logout() {
   window.location.href = '/';
 }
 
-// Socket event handlers
-socket.on('connect', () => {
-  if (sessionData) {
-    connectToSession();
-  }
-});
-
-socket.on('disconnect', () => {
-  setConnectionStatus(false);
-  displayMessage('Disconnected from server. Reconnecting...', 'error');
-});
-
-socket.on('connect_error', () => {
-  setConnectionStatus(false);
-  displayMessage('Connection error. Reconnecting...', 'error');
-});
-
-// Handle clipboard updates from other clients
-socket.on('clipboard-broadcast', (data) => {
-  // Check if this update is newer than our current content
-  // If not, ignore it to prevent update loops
-  if (data.timestamp && data.timestamp <= lastClipboardTimestamp) {
-    console.log('Ignoring older or same-age clipboard update');
-    return;
-  }
-  
-  // Update our timestamp tracking with this newer timestamp
-  if (data.timestamp) {
-    lastClipboardTimestamp = data.timestamp;
-  }
-  
-  // Enter grace period to prevent immediate re-sync
-  syncGracePeriod = true;
-  
-  // Mark content as coming from remote
-  lastContentOrigin = 'remote';
-  
-  // Update local clipboard content without sending to server
-  updateClipboardContent(data, false);
-  
-  // Optionally write to system clipboard - with retry logic for images
-  if (isMonitoring) {
-    try {
-      if (data.type === 'text') {
-        // Text can be written directly
-        navigator.clipboard.writeText(data.content).catch(err => {
-          console.error('Error writing text to clipboard:', err);
-        });
-        
-        // Record the time of this sync attempt
-        lastSyncAttemptTime = Date.now();
-        
-        console.log('Text content written to system clipboard');
-      } else if (data.type === 'image') {
-        // For images, attempt multiple sync retries to improve success rate
-        syncImageToClipboard(data.content, data.imageType || 'image/png');
-      }
-    } catch (err) {
-      console.error('Failed to access clipboard API:', err);
-    }
-  }
-  
-  // Update UI
-  updateSyncStatus('Updated from another device');
-  updateLastUpdated();
-  
-  const contentTypeMsg = data.type === 'image' ? 'Image' : 'Text';
-  displayMessage(`${contentTypeMsg} clipboard updated from another device`, 'info', 2000);
-  
-  // End grace period after short delay
-  setTimeout(() => {
-    syncGracePeriod = false;
-  }, syncGracePeriodDuration);
-});
-
 /**
- * Show confirmation before transferring a file
+ * Update UI to show file content
  * @param {Object} fileData - File data object
  */
-function showFileTransferConfirmation(fileData) {
-  // Get file info
-  const fileName = fileData.fileName || 'unknown-file';
-  const fileSize = fileData.fileSize || 0;
-  const formattedSize = formatFileSize(fileSize);
+function handleFileContent(fileData) {
+  // Update the file section UI
+  emptyFileState.classList.add('hidden');
+  fileContainer.classList.remove('hidden');
   
-  // Show confirmation dialog
-  const confirmSend = confirm(
-    `Send file "${fileName}" (${formattedSize}) to all connected devices?`
-  );
+  // Update file info
+  fileNameEl.textContent = fileData.fileName || 'Unknown file';
+  fileSizeEl.textContent = formatFileSize(fileData.fileSize || 0);
+  fileMimeEl.textContent = fileData.fileType || 'unknown/type';
   
-  if (confirmSend) {
-    // User confirmed, prepare and send the file
-    updateClipboardContent(fileData, true);
-    displayMessage(`Sending file "${fileName}"...`, 'info', 3000);
+  // Set file extension in icon if we can determine it
+  if (fileData.fileName) {
+    const extension = fileData.fileName.split('.').pop().toLowerCase();
+    if (extension) {
+      fileTypeIcon.setAttribute('data-extension', extension);
+    } else {
+      fileTypeIcon.removeAttribute('data-extension');
+    }
   }
 }
 
 /**
- * Format file size to human-readable format
- * @param {number} bytes - Size in bytes
- * @returns {string} Formatted size string
+ * Download a shared file
+ * @param {Object} fileData - File data object
  */
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-/**
- * Download a file from clipboard data
- */
-function downloadFile() {
-  if (currentContentState !== CONTENT_STATES.FILE || !lastClipboardContent) {
+function downloadSharedFile(fileData) {
+  if (!fileData || !fileData.fileContent) {
     displayMessage('No file to download', 'error', 2000);
     return;
   }
   
   try {
     // Get file data
-    const { fileName, fileContent, fileType } = lastClipboardContent;
+    const { fileName, fileContent, fileType } = fileData;
     
     // Create blob from content
     const blob = dataURLtoBlob(fileContent);
@@ -1342,42 +1281,14 @@ function downloadFile() {
 }
 
 /**
- * Update UI to show file content
- * @param {Object} fileData - File data object
+ * Download a file from clipboard data
  */
-function handleFileContent(fileData) {
-  // Hide other containers
-  clipboardTextarea.value = '';
-  clipboardTextarea.classList.add('hidden');
-  imageContainer.classList.add('hidden');
-  
-  // Show file banner
-  fileContainer.classList.remove('hidden');
-  
-  // Update file info
-  fileNameEl.textContent = fileData.fileName || 'Unknown file';
-  fileSizeEl.textContent = formatFileSize(fileData.fileSize || 0);
-  fileMimeEl.textContent = fileData.fileType || 'unknown/type';
-  
-  // Set file extension in icon if we can determine it
-  if (fileData.fileName) {
-    const extension = fileData.fileName.split('.').pop().toLowerCase();
-    if (extension) {
-      fileTypeIcon.setAttribute('data-extension', extension);
-    } else {
-      fileTypeIcon.removeAttribute('data-extension');
-    }
+function downloadFile() {
+  if (sharedFile) {
+    downloadSharedFile(sharedFile);
+  } else {
+    displayMessage('No file to download', 'error', 2000);
   }
-  
-  // Update copy button to download mode
-  copyBtn.textContent = 'Download';
-  copyBtn.classList.add('download-mode');
-  
-  // Update content state
-  currentContentState = CONTENT_STATES.FILE;
-  
-  // Update content type indicator
-  updateContentTypeIndicator(CONTENT_STATES.FILE);
 }
 
 /**
@@ -1401,98 +1312,6 @@ function updateContentTypeIndicator(type) {
     contentTypeStatus.classList.add('image-content');
   } else if (type === CONTENT_STATES.FILE) {
     contentTypeStatus.classList.add('file-content');
-  }
-}
-
-// Handle client join/leave events
-socket.on('client-joined', (data) => {
-  // Use server-provided count instead of local increment
-  if (data.clientCount) {
-    updateClientCount(data.clientCount);
-  }
-  displayMessage('Another device joined the session', 'info', 3000);
-});
-
-socket.on('client-left', (data) => {
-  // Use server-provided count instead of local calculation
-  if (data.clientCount) {
-    updateClientCount(data.clientCount);
-  }
-  displayMessage('A device left the session', 'info', 3000);
-});
-
-// Listen for explicit client count updates from server
-socket.on('client-count-update', (data) => {
-  if (data.clientCount !== undefined) {
-    updateClientCount(data.clientCount);
-  }
-});
-
-// Listen for file chunk transfers
-socket.on('file-chunk', (data) => {
-  // TODO: Implement file chunking for large files
-  console.log('Received file chunk:', data.chunkId, 'of', data.totalChunks);
-});
-
-/**
- * Show drop zone for file drag-and-drop
- * @param {string} message - Optional custom message to display
- */
-function showDropZone(message) {
-  const dropZone = document.getElementById('drop-zone');
-  const primaryMsg = dropZone.querySelector('.primary');
-  
-  // Update message if provided
-  if (message && primaryMsg) {
-    primaryMsg.textContent = message;
-  }
-  
-  // Show drop zone
-  dropZone.classList.remove('hidden');
-  
-  // Add semi-transparent overlay effect to clipboard container
-  const clipboardContainer = document.querySelector('.clipboard-container');
-  clipboardContainer.style.position = 'relative';
-  
-  // Create overlay if it doesn't exist
-  if (!document.getElementById('dropzone-overlay')) {
-    const overlay = document.createElement('div');
-    overlay.id = 'dropzone-overlay';
-    overlay.style.position = 'absolute';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.right = '0';
-    overlay.style.bottom = '0';
-    overlay.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
-    overlay.style.zIndex = '50';
-    clipboardContainer.appendChild(overlay);
-  }
-}
-
-/**
- * Hide drop zone
- */
-function hideDropZone() {
-  const dropZone = document.getElementById('drop-zone');
-  const multiFileIndicator = document.getElementById('multi-file-indicator');
-  
-  // Hide drop zone and multi-file indicator
-  dropZone.classList.add('hidden');
-  multiFileIndicator.classList.add('hidden');
-  
-  // Remove overlay
-  const overlay = document.getElementById('dropzone-overlay');
-  if (overlay) {
-    overlay.parentNode.removeChild(overlay);
-  }
-  
-  // Show clipboard content again
-  if (currentContentState === CONTENT_STATES.TEXT) {
-    clipboardTextarea.classList.remove('hidden');
-  } else if (currentContentState === CONTENT_STATES.IMAGE) {
-    imageContainer.classList.remove('hidden');
-  } else if (currentContentState === CONTENT_STATES.FILE) {
-    fileContainer.classList.remove('hidden');
   }
 }
 
@@ -1522,8 +1341,16 @@ function handleSingleFileUpload(file) {
     // Hide drop zone
     hideDropZone();
     
-    // Show confirmation and proceed
-    showFileTransferConfirmation(fileData);
+    // Store as shared file
+    sharedFile = fileData;
+    
+    // Update file UI
+    handleFileContent(fileData);
+    
+    // Send to other devices
+    sendClipboardUpdate(fileData);
+    
+    displayMessage(`File "${file.name}" shared with all devices`, 'success', 3000);
   };
   
   reader.onerror = function() {
@@ -1544,7 +1371,7 @@ function handleSingleFileUpload(file) {
  */
 function handleMultipleFiles(files) {
   // Store files for later use
-  window.droppedFiles = files;
+  droppedFiles = files;
   
   // Check total size
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
@@ -1554,11 +1381,7 @@ function handleMultipleFiles(files) {
   }
   
   // Update multi-file indicator
-  const multiFileIndicator = document.getElementById('multi-file-indicator');
-  const fileCountBadge = multiFileIndicator.querySelector('.file-count-badge');
-  
-  multiFileIndicator.classList.remove('hidden');
-  fileCountBadge.textContent = `${files.length} files`;
+  updateFileCountDisplay();
   
   // Update drop zone message
   const primaryMsg = document.querySelector('#drop-zone .primary');
@@ -1651,12 +1474,140 @@ async function createAndShareZip(files) {
     // Hide UI elements
     hideDropZone();
     
-    // Confirm and share
-    displayMessage(`ZIP archive created with ${files.length} files (${formatFileSize(totalSize)})`, 'success', 3000);
-    showFileTransferConfirmation(fileData);
+    // Update shared file and UI
+    sharedFile = fileData;
+    handleFileContent(fileData);
+    
+    // Send to other devices
+    sendClipboardUpdate(fileData);
+    
+    displayMessage(`ZIP archive with ${files.length} files shared with all devices`, 'success', 3000);
     
   } catch (err) {
     console.error('Error creating ZIP:', err);
     displayMessage('Failed to create ZIP file: ' + err.message, 'error', 5000);
   }
 }
+
+/**
+ * Format file size to human-readable format
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size string
+ */
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Socket event handlers
+socket.on('connect', () => {
+  if (sessionData) {
+    connectToSession();
+  }
+});
+
+socket.on('disconnect', () => {
+  setConnectionStatus(false);
+  displayMessage('Disconnected from server. Reconnecting...', 'error');
+});
+
+socket.on('connect_error', () => {
+  setConnectionStatus(false);
+  displayMessage('Connection error. Reconnecting...', 'error');
+});
+
+// Handle clipboard updates from other clients
+socket.on('clipboard-broadcast', (data) => {
+  // Check if this update is newer than our current content
+  // If not, ignore it to prevent update loops
+  if (data.timestamp && data.timestamp <= lastClipboardTimestamp) {
+    console.log('Ignoring older or same-age clipboard update');
+    return;
+  }
+  
+  // Update our timestamp tracking with this newer timestamp
+  if (data.timestamp) {
+    lastClipboardTimestamp = data.timestamp;
+  }
+  
+  // Enter grace period to prevent immediate re-sync
+  syncGracePeriod = true;
+  
+  // Mark content as coming from remote
+  lastContentOrigin = 'remote';
+  
+  // Handle different content types
+  if (data.type === 'file') {
+    // Store shared file separately
+    sharedFile = data;
+    handleFileContent(data);
+    
+    displayMessage(`File "${data.fileName}" received from another device`, 'info', 3000);
+  } else {
+    // Update local clipboard content without sending to server
+    updateClipboardContent(data, false);
+    
+    // Optionally write to system clipboard - with retry logic for images
+    if (isMonitoring) {
+      try {
+        if (data.type === 'text') {
+          // Text can be written directly
+          navigator.clipboard.writeText(data.content).catch(err => {
+            console.error('Error writing text to clipboard:', err);
+          });
+          
+          // Record the time of this sync attempt
+          lastSyncAttemptTime = Date.now();
+          
+          console.log('Text content written to system clipboard');
+        } else if (data.type === 'image') {
+          // For images, attempt multiple sync retries to improve success rate
+          syncImageToClipboard(data.content, data.imageType || 'image/png');
+        }
+      } catch (err) {
+        console.error('Failed to access clipboard API:', err);
+      }
+    }
+    
+    // Update UI
+    updateSyncStatus('Updated from another device');
+    updateLastUpdated();
+    
+    const contentTypeMsg = data.type === 'image' ? 'Image' : 'Text';
+    displayMessage(`${contentTypeMsg} clipboard updated from another device`, 'info', 2000);
+  }
+  
+  // End grace period after short delay
+  setTimeout(() => {
+    syncGracePeriod = false;
+  }, syncGracePeriodDuration);
+});
+
+// Handle client join/leave events
+socket.on('client-joined', (data) => {
+  // Use server-provided count instead of local increment
+  if (data.clientCount) {
+    updateClientCount(data.clientCount);
+  }
+  displayMessage('Another device joined the session', 'info', 3000);
+});
+
+socket.on('client-left', (data) => {
+  // Use server-provided count instead of local calculation
+  if (data.clientCount) {
+    updateClientCount(data.clientCount);
+  }
+  displayMessage('A device left the session', 'info', 3000);
+});
+
+// Listen for explicit client count updates from server
+socket.on('client-count-update', (data) => {
+  if (data.clientCount !== undefined) {
+    updateClientCount(data.clientCount);
+  }
+});
