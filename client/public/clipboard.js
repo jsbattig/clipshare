@@ -710,6 +710,15 @@ function sendClipboardUpdate(content) {
 }
 
 /**
+ * Update the last updated timestamp display
+ */
+function updateLastUpdated() {
+  const now = new Date();
+  const timeString = now.toLocaleTimeString();
+  lastUpdateEl.textContent = `Last update: ${timeString}`;
+}
+
+/**
  * Update the sync status display
  */
 function updateSyncStatus(status) {
