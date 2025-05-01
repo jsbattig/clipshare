@@ -18,7 +18,8 @@ export const CONFIG = {
     minTimeBetweenSyncs: 2000,   // Minimum time between sync attempts
     imageSyncRetries: 3,         // Number of times to retry syncing images
     imageSyncRetryDelay: 1000,   // Delay between image sync retries
-    syncGracePeriodDuration: 3000 // Grace period after receiving updates
+    syncGracePeriodDuration: 3000, // Grace period after receiving updates
+    imageGracePeriodDuration: 5000 // Longer grace period for images specifically
   },
   
   // File handling limits

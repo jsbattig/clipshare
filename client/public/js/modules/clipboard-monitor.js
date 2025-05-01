@@ -6,7 +6,13 @@
  */
 
 import { CONFIG } from './config.js';
-import { detectOperatingSystem, blobToBase64, dataURLtoBlob } from './utils.js';
+import { 
+  detectOperatingSystem, 
+  blobToBase64, 
+  dataURLtoBlob, 
+  generateImageHash, 
+  normalizeImageContent
+} from './utils.js';
 import * as UIManager from './ui-manager.js';
 
 // Module state
@@ -141,15 +147,23 @@ export function setUserTyping(typing, updateUI) {
 /**
  * Set grace period state
  * @param {boolean} inGracePeriod - Whether in grace period
+ * @param {string} contentType - Type of content ('text', 'image')
  */
-export function setGracePeriod(inGracePeriod) {
+export function setGracePeriod(inGracePeriod, contentType = 'text') {
   syncGracePeriod = inGracePeriod;
   
-  // Auto clear after timeout
+  // Auto clear after timeout - use longer period for images
   if (inGracePeriod) {
+    const duration = contentType === 'image'
+      ? CONFIG.sync.imageGracePeriodDuration  // Use longer grace period for images
+      : CONFIG.sync.syncGracePeriodDuration;
+    
+    console.log(`Setting grace period for ${duration}ms for ${contentType} content`);
+    
     setTimeout(() => {
       syncGracePeriod = false;
-    }, CONFIG.sync.syncGracePeriodDuration);
+      console.log('Grace period ended');
+    }, duration);
   }
 }
 
@@ -159,11 +173,21 @@ export function setGracePeriod(inGracePeriod) {
  * @returns {boolean} True if content has changed
  */
 function hasContentChanged(newContent) {
-  // Get base content without metadata for reliable comparison
+  // Special handling for images
+  if (typeof newContent === 'object' && newContent.type === 'image') {
+    return hasImageContentChanged(newContent);
+  }
+  
+  // For text and other content
   const newBaseContent = getBaseContent(newContent);
   const lastBaseContent = getBaseContent(lastClipboardContent);
   
-  // Simple hash of content for better comparison
+  // If content is exactly the same, no change
+  if (newBaseContent === lastBaseContent) {
+    return false;
+  }
+  
+  // Compare with simple hash for non-image content
   const newContentHash = hashContent(newContent);
   const lastContentHash = hashContent(lastClipboardContent);
   
@@ -172,8 +196,59 @@ function hasContentChanged(newContent) {
     return false;
   }
   
-  // Compare actual content, not just object structure
-  return newBaseContent !== lastBaseContent;
+  return true;
+}
+
+/**
+ * Compare image content more robustly
+ * @param {Object} newImage - New image content
+ * @returns {boolean} True if content has changed
+ */
+function hasImageContentChanged(newImage) {
+  // If we don't have previous content or it wasn't an image, this is a change
+  if (!lastClipboardContent || 
+      typeof lastClipboardContent !== 'object' || 
+      lastClipboardContent.type !== 'image') {
+    return true;
+  }
+  
+  try {
+    // Normalize the images to remove metadata variations
+    const normalizedNew = normalizeImageContent(newImage);
+    const normalizedLast = normalizeImageContent(lastClipboardContent);
+    
+    // Generate robust image hashes
+    const newHash = generateImageHash(normalizedNew.content);
+    const lastHash = generateImageHash(normalizedLast.content);
+    
+    // Add extra logging for debugging
+    console.log('Image comparison:', {
+      hashesMatch: newHash === lastHash,
+      newImageType: newImage.imageType,
+      lastImageType: lastClipboardContent.imageType
+    });
+    
+    // If hashes match, images are the same
+    if (newHash === lastHash) {
+      return false;
+    }
+    
+    // As a backup check, compare base64 data without headers
+    const newBase64 = newImage.content.split(',')[1] || '';
+    const lastBase64 = lastClipboardContent.content.split(',')[1] || '';
+    
+    if (newBase64 === lastBase64) {
+      console.log('Base64 content matches despite different hashes');
+      return false;
+    }
+    
+    return true;
+  } catch (err) {
+    console.error('Error comparing image content:', err);
+    
+    // Fall back to string comparison
+    return newImage.content !== lastClipboardContent.content;
+  }
 }
 
 /**
@@ -201,8 +276,7 @@ function hashContent(content) {
   if (typeof content === 'object') {
     if (content.type === 'text') return content.content;
     if (content.type === 'image') {
-      // For images, use beginning of data URL as representative sample
-      return content.content.substring(0, 100);
+      return generateImageHash(content.content);
     }
   }
   

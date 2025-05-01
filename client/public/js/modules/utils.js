@@ -239,12 +239,127 @@ export function hashContent(content) {
   if (typeof content === 'object') {
     if (content.type === 'text') return content.content;
     if (content.type === 'image') {
-      // For images, use beginning of data URL as representative sample
-      return content.content.substring(0, 100);
+      return generateImageHash(content.content);
     }
   }
   
   return JSON.stringify(content);
+}
+
+/**
+ * Generate a more robust hash for image data
+ * @param {string} imageData - Base64 encoded image data
+ * @returns {string} Image hash
+ */
+export function generateImageHash(imageData) {
+  if (!imageData || typeof imageData !== 'string') {
+    return '';
+  }
+  
+  try {
+    // Strip out metadata/headers from data URL
+    const base64Part = imageData.split(',')[1] || imageData;
+    
+    // If it's a very short string, just return it
+    if (base64Part.length < 100) return base64Part;
+    
+    // Sample from multiple parts of the image instead of just the beginning
+    const totalLength = base64Part.length;
+    
+    // Take samples from beginning, 1/3, 2/3 and end of the data
+    const sample1 = base64Part.substring(0, 30);
+    const sample2 = base64Part.substring(Math.floor(totalLength/3), Math.floor(totalLength/3) + 30);
+    const sample3 = base64Part.substring(Math.floor(2*totalLength/3), Math.floor(2*totalLength/3) + 30);
+    const sample4 = base64Part.substring(totalLength - 30);
+    
+    // Also include image dimensions if embedded in the data
+    const dimensions = extractImageDimensions(imageData);
+    
+    return `${sample1}_${sample2}_${sample3}_${sample4}_${dimensions}`;
+  } catch (err) {
+    console.error('Error generating image hash:', err);
+    return imageData.substring(0, 100); // Fallback to original method
+  }
+}
+
+/**
+ * Extract image dimensions from data URL if possible
+ * @param {string} dataUrl - Image data URL
+ * @returns {string} Dimension string or empty string
+ */
+export function extractImageDimensions(dataUrl) {
+  // This is a basic implementation that would be enhanced with actual
+  // image dimension extraction. For now we'll just return
+  // a portion of the data that's likely to contain dimension info
+  
+  try {
+    // For PNG, dimensions are in bytes 16-23
+    // For JPEG, dimensions are harder to extract without parsing the full format
+    // This is a simplified approach for demo purposes
+    
+    // Extract MIME type
+    const mimeMatch = dataUrl.match(/data:(image\/[^;]+)/);
+    const mimeType = mimeMatch ? mimeMatch[1] : '';
+    
+    // Return mime type as part of the hash
+    return mimeType;
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
+ * Normalize image data by stripping irrelevant metadata
+ * @param {Object} imageContent - Image content object
+ * @returns {Object} Normalized image content
+ */
+export function normalizeImageContent(imageContent) {
+  if (!imageContent || !imageContent.content) {
+    return imageContent;
+  }
+  
+  // Create a new object with normalized content
+  return {
+    type: 'image',
+    content: normalizeDataUrl(imageContent.content),
+    imageType: imageContent.imageType || 'image/png'
+  };
+}
+
+/**
+ * Normalize a data URL by removing variable metadata
+ * @param {string} dataUrl - Data URL to normalize
+ * @returns {string} Normalized data URL
+ */
+function normalizeDataUrl(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') {
+    return dataUrl;
+  }
+  
+  try {
+    // Split the data URL into parts
+    const parts = dataUrl.split(',');
+    if (parts.length < 2) return dataUrl;
+    
+    // Get the base64 data
+    const base64Data = parts[1];
+    
+    // Get a standardized MIME type
+    let mimeType = 'image/png';
+    if (parts[0].includes('image/jpeg')) {
+      mimeType = 'image/jpeg';
+    } else if (parts[0].includes('image/gif')) {
+      mimeType = 'image/gif';
+    } else if (parts[0].includes('image/svg+xml')) {
+      mimeType = 'image/svg+xml';
+    }
+    
+    // Reconstruct a standardized data URL
+    return `data:${mimeType};base64,${base64Data}`;
+  } catch (err) {
+    console.error('Error normalizing data URL:', err);
+    return dataUrl;
+  }
 }
 
 /**

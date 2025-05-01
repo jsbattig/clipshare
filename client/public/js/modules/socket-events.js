@@ -166,8 +166,8 @@ function handleClipboardBroadcast(data) {
   
   console.log('Received clipboard update from another device', data.type);
   
-  // Enter grace period to prevent ping-pong updates
-  ClipboardMonitor.setGracePeriod(true);
+  // Enter grace period to prevent ping-pong updates with appropriate duration for content type
+  ClipboardMonitor.setGracePeriod(true, data.type);
   
   // Mark content as coming from remote
   ClipboardMonitor.setContentOrigin('remote');
@@ -176,6 +176,7 @@ function handleClipboardBroadcast(data) {
   if (data.type === 'file') {
     // File content is handled separately
     handleFileBroadcast(data);
+    // No need to set grace period again as it's already set above
   } else {
     // Update clipboard content without sending to server
     if (clipboardUpdateCallback) {
