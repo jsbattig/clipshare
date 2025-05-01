@@ -12,9 +12,22 @@ import { CONFIG } from './config.js';
  */
 export function detectOperatingSystem() {
   const userAgent = window.navigator.userAgent.toLowerCase();
-  if (userAgent.indexOf('windows') !== -1) return 'windows';
-  if (userAgent.indexOf('mac') !== -1) return 'mac';
-  if (userAgent.indexOf('linux') !== -1) return 'linux';
+  const platform = window.navigator.platform.toLowerCase();
+  
+  // Check platform first (more reliable)
+  if (platform.indexOf('win') !== -1) return 'windows';
+  if (platform.indexOf('mac') !== -1) return 'mac';
+  if (platform.indexOf('linux') !== -1 || platform.indexOf('x11') !== -1) return 'linux';
+  
+  // Fallback to userAgent if platform check fails
+  if (userAgent.indexOf('windows') !== -1 || userAgent.indexOf('win') !== -1) return 'windows';
+  if (userAgent.indexOf('macintosh') !== -1 || userAgent.indexOf('mac os x') !== -1) return 'mac';
+  if (userAgent.indexOf('linux') !== -1 || userAgent.indexOf('x11') !== -1) return 'linux';
+  
+  // Additional iOS/Android detection
+  if (userAgent.indexOf('ipad') !== -1 || userAgent.indexOf('iphone') !== -1) return 'ios';
+  if (userAgent.indexOf('android') !== -1) return 'android';
+  
   return 'unknown';
 }
 
@@ -209,21 +222,35 @@ export function getBrowserInfo() {
   const ua = navigator.userAgent;
   let browserName = "Unknown";
   
-  if (ua.match(/chrome|chromium|crios/i)) {
-    browserName = "Chrome";
+  // Better browser detection with version information
+  if (ua.match(/edg/i)) {
+    browserName = "Edge";
+  } else if (ua.match(/opr\//i) || ua.match(/opera/i)) {
+    browserName = "Opera";
+  } else if (ua.match(/chrome|chromium|crios/i)) {
+    // Check for Arc browser (Chromium-based)
+    if (ua.toLowerCase().indexOf('arc') !== -1) {
+      browserName = "Arc";
+    } else {
+      browserName = "Chrome";
+    }
   } else if (ua.match(/firefox|fxios/i)) {
     browserName = "Firefox";
   } else if (ua.match(/safari/i)) {
     browserName = "Safari";
-  } else if (ua.match(/opr\//i)) {
-    browserName = "Opera";
-  } else if (ua.match(/edg/i)) {
-    browserName = "Edge";
   }
+  
+  // Get OS information
+  const osInfo = detectOperatingSystem();
+  
+  // Create a fingerprint that combines multiple factors
+  const browserFingerprint = `${browserName}_${osInfo}_${navigator.platform}_${window.screen.width}x${window.screen.height}`;
   
   return {
     name: browserName,
+    os: osInfo,
     windowId: getWindowIdentifier(),
+    fingerprint: browserFingerprint,
     userAgent: ua.substring(0, 100) // Truncated to avoid excessive size
   };
 }
@@ -266,16 +293,29 @@ export function generateImageHash(imageData) {
     // Sample from multiple parts of the image instead of just the beginning
     const totalLength = base64Part.length;
     
-    // Take samples from beginning, 1/3, 2/3 and end of the data
-    const sample1 = base64Part.substring(0, 30);
-    const sample2 = base64Part.substring(Math.floor(totalLength/3), Math.floor(totalLength/3) + 30);
-    const sample3 = base64Part.substring(Math.floor(2*totalLength/3), Math.floor(2*totalLength/3) + 30);
-    const sample4 = base64Part.substring(totalLength - 30);
+    // Take more samples and smaller chunks to create a more stable hash
+    // These smaller, more numerous samples help with cross-OS variations
+    const samples = [];
     
-    // Also include image dimensions if embedded in the data
-    const dimensions = extractImageDimensions(imageData);
+    // Beginning samples
+    samples.push(base64Part.substring(0, 20));
+    samples.push(base64Part.substring(20, 40));
     
-    return `${sample1}_${sample2}_${sample3}_${sample4}_${dimensions}`;
+    // Middle samples - take 5 samples evenly distributed in the middle
+    for (let i = 1; i <= 5; i++) {
+      const position = Math.floor((totalLength * i) / 6);
+      samples.push(base64Part.substring(position, position + 15));
+    }
+    
+    // End samples
+    samples.push(base64Part.substring(totalLength - 40, totalLength - 20));
+    samples.push(base64Part.substring(totalLength - 20));
+    
+    // Calculate string length as well - since this is stable across platforms
+    const lengthInfo = `len:${base64Part.length}`;
+    
+    // Join all parts
+    return samples.join('_') + '_' + lengthInfo;
   } catch (err) {
     console.error('Error generating image hash:', err);
     return imageData.substring(0, 100); // Fallback to original method
@@ -344,17 +384,29 @@ function normalizeDataUrl(dataUrl) {
     // Get the base64 data
     const base64Data = parts[1];
     
-    // Get a standardized MIME type
+    // Get a standardized MIME type, discard all parameters except base type
     let mimeType = 'image/png';
-    if (parts[0].includes('image/jpeg')) {
-      mimeType = 'image/jpeg';
-    } else if (parts[0].includes('image/gif')) {
-      mimeType = 'image/gif';
-    } else if (parts[0].includes('image/svg+xml')) {
-      mimeType = 'image/svg+xml';
+    
+    // Extract just the basic MIME type without parameters
+    const mimeMatch = parts[0].match(/data:(image\/[^;,]+)/);
+    if (mimeMatch && mimeMatch[1]) {
+      const simpleMime = mimeMatch[1].toLowerCase();
+      if (simpleMime === 'image/jpeg' || simpleMime === 'image/jpg') {
+        mimeType = 'image/jpeg';
+      } else if (simpleMime === 'image/png') {
+        mimeType = 'image/png';
+      } else if (simpleMime === 'image/gif') {
+        mimeType = 'image/gif';
+      } else if (simpleMime === 'image/svg+xml') {
+        mimeType = 'image/svg+xml';
+      } else {
+        // Use the detected MIME type but ensure it's lowercase
+        mimeType = simpleMime;
+      }
     }
     
-    // Reconstruct a standardized data URL
+    // Always use one standard format for the data URL
+    // This ensures consistency across platforms
     return `data:${mimeType};base64,${base64Data}`;
   } catch (err) {
     console.error('Error normalizing data URL:', err);

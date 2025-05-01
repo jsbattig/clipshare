@@ -3,7 +3,7 @@
  * Handles session creation, joining, and authentication
  */
 
-// Simple hash function for content (for basic comparison)
+// Enhanced hash function for content that matches client-side algorithm
 function hashContent(content) {
   // For text content, use the text itself
   if (typeof content === 'string') return content;
@@ -11,12 +11,126 @@ function hashContent(content) {
   if (typeof content === 'object') {
     if (content.type === 'text') return content.content;
     if (content.type === 'image') {
-      // For images, use first 100 chars of base64 as a representative sample
-      // This avoids hashing entire large images but still captures uniqueness
-      return content.content.substring(0, 100);
+      // Use the same robust hashing algorithm as the client
+      return generateImageHash(content.content);
     }
   }
   return JSON.stringify(content);
+}
+
+/**
+ * Generate a more robust hash for image data - SAME AS CLIENT VERSION
+ * @param {string} imageData - Base64 encoded image data
+ * @returns {string} Image hash
+ */
+function generateImageHash(imageData) {
+  if (!imageData || typeof imageData !== 'string') {
+    return '';
+  }
+  
+  try {
+    // Strip out metadata/headers from data URL
+    const base64Part = imageData.split(',')[1] || imageData;
+    
+    // If it's a very short string, just return it
+    if (base64Part.length < 100) return base64Part;
+    
+    // Sample from multiple parts of the image instead of just the beginning
+    const totalLength = base64Part.length;
+    
+    // Take more samples and smaller chunks to create a more stable hash
+    // These smaller, more numerous samples help with cross-OS variations
+    const samples = [];
+    
+    // Beginning samples
+    samples.push(base64Part.substring(0, 20));
+    samples.push(base64Part.substring(20, 40));
+    
+    // Middle samples - take 5 samples evenly distributed in the middle
+    for (let i = 1; i <= 5; i++) {
+      const position = Math.floor((totalLength * i) / 6);
+      samples.push(base64Part.substring(position, position + 15));
+    }
+    
+    // End samples
+    samples.push(base64Part.substring(totalLength - 40, totalLength - 20));
+    samples.push(base64Part.substring(totalLength - 20));
+    
+    // Calculate string length as well - since this is stable across platforms
+    const lengthInfo = `len:${base64Part.length}`;
+    
+    // Join all parts
+    return samples.join('_') + '_' + lengthInfo;
+  } catch (err) {
+    console.error('Error generating image hash:', err);
+    return imageData.substring(0, 100); // Fallback to original method
+  }
+}
+
+/**
+ * Normalize a data URL by removing variable metadata
+ * @param {string} dataUrl - Data URL to normalize
+ * @returns {string} Normalized data URL
+ */
+function normalizeDataUrl(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') {
+    return dataUrl;
+  }
+  
+  try {
+    // Split the data URL into parts
+    const parts = dataUrl.split(',');
+    if (parts.length < 2) return dataUrl;
+    
+    // Get the base64 data
+    const base64Data = parts[1];
+    
+    // Get a standardized MIME type, discard all parameters except base type
+    let mimeType = 'image/png';
+    
+    // Extract just the basic MIME type without parameters
+    const mimeMatch = parts[0].match(/data:(image\/[^;,]+)/);
+    if (mimeMatch && mimeMatch[1]) {
+      const simpleMime = mimeMatch[1].toLowerCase();
+      if (simpleMime === 'image/jpeg' || simpleMime === 'image/jpg') {
+        mimeType = 'image/jpeg';
+      } else if (simpleMime === 'image/png') {
+        mimeType = 'image/png';
+      } else if (simpleMime === 'image/gif') {
+        mimeType = 'image/gif';
+      } else if (simpleMime === 'image/svg+xml') {
+        mimeType = 'image/svg+xml';
+      } else {
+        // Use the detected MIME type but ensure it's lowercase
+        mimeType = simpleMime;
+      }
+    }
+    
+    // Always use one standard format for the data URL
+    // This ensures consistency across platforms
+    return `data:${mimeType};base64,${base64Data}`;
+  } catch (err) {
+    console.error('Error normalizing data URL:', err);
+    return dataUrl;
+  }
+}
+
+/**
+ * Normalize image content object
+ * @param {Object} imageContent - Image content object
+ * @returns {Object} Normalized image content
+ */
+function normalizeImageContent(imageContent) {
+  if (!imageContent || !imageContent.content) {
+    return imageContent;
+  }
+  
+  // Create a new object with normalized content
+  return {
+    type: 'image',
+    content: normalizeDataUrl(imageContent.content),
+    imageType: imageContent.imageType || 'image/png'
+  };
 }
 
 // Simple in-memory session storage
@@ -161,8 +275,22 @@ function updateClipboardContent(sessionId, content, originClient) {
     return false;
   }
   
+  // For images, normalize the content before hashing
+  if (newClipboard.type === 'image') {
+    newClipboard = normalizeImageContent(newClipboard);
+  }
+  
   // Generate content hash - only of the actual content, not metadata
   const contentHash = hashContent(newClipboard.type === 'text' ? newClipboard.content : newClipboard);
+  
+  // Include OS info in the hash key if available to help prevent cross-OS ping-pong
+  const osInfo = newClipboard.clientInfo && newClipboard.clientInfo.os ? 
+    `_${newClipboard.clientInfo.os}` : '';
+  const browserInfo = newClipboard.clientInfo && newClipboard.clientInfo.name ? 
+    `_${newClipboard.clientInfo.name}` : '';
+  
+  // Create a more specific hash key that includes client environment info
+  const hashKey = contentHash + osInfo + browserInfo;
   
   // Initialize session tracking properties if they don't exist
   if (!sessions[sessionId].contentHashes) {
@@ -181,15 +309,25 @@ function updateClipboardContent(sessionId, content, originClient) {
   const now = Date.now();
   const timeSinceLastUpdate = now - sessions[sessionId].lastUpdateTime;
   
+  // Debug logging for cross-OS scenarios
+  if (newClipboard.type === 'image' && newClipboard.clientInfo) {
+    console.log(`Image update from: ${newClipboard.clientInfo.name} on ${newClipboard.clientInfo.os || 'unknown OS'}`);
+    console.log(`Hash key: ${hashKey}`);
+  }
+  
   // Check if we've seen this exact content hash recently
-  if (sessions[sessionId].contentHashes[contentHash]) {
-    const hashAge = now - sessions[sessionId].contentHashes[contentHash].timestamp;
+  if (sessions[sessionId].contentHashes[hashKey]) {
+    const hashAge = now - sessions[sessionId].contentHashes[hashKey].timestamp;
     
-    // If identical content was updated very recently (within 2 seconds)
+    // For images, use a longer detection window (5 seconds instead of 2)
+    const pingPongWindow = newClipboard.type === 'image' ? 5000 : 2000;
+    
+    // If identical content was updated very recently
     // AND from a different client (potential ping-pong)
-    if (hashAge < 2000 && 
-        sessions[sessionId].contentHashes[contentHash].client !== originClient) {
-      console.log(`Preventing ping-pong: duplicate content from different client`);
+    if (hashAge < pingPongWindow && 
+        sessions[sessionId].contentHashes[hashKey].client !== originClient) {
+      console.log(`Preventing ping-pong: duplicate ${newClipboard.type} content from different client`);
+      console.log(`Age: ${hashAge}ms, Origin: ${originClient} vs Previous: ${sessions[sessionId].contentHashes[hashKey].client}`);
       return false;
     }
   }
@@ -218,10 +356,12 @@ function updateClipboardContent(sessionId, content, originClient) {
     }
   }
   
-  // Store hash with timestamp for future comparisons
-  sessions[sessionId].contentHashes[contentHash] = {
+  // Store hash with timestamp and additional info for future comparisons
+  sessions[sessionId].contentHashes[hashKey] = {
     timestamp: now,
-    client: originClient
+    client: originClient,
+    type: newClipboard.type,
+    clientInfo: newClipboard.clientInfo
   };
   
   // Update session tracking state
