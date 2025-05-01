@@ -504,23 +504,44 @@ function stopClipboardMonitoring() {
 }
 
 /**
+ * Detect operating system for clipboard format handling
+ * @returns {string} The detected OS: 'windows', 'mac', 'linux', or 'unknown'
+ */
+function detectOperatingSystem() {
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  if (userAgent.indexOf('windows') !== -1) return 'windows';
+  if (userAgent.indexOf('mac') !== -1) return 'mac';
+  if (userAgent.indexOf('linux') !== -1) return 'linux';
+  return 'unknown';
+}
+
+/**
  * Read from clipboard using multiple methods
  * Tries different approaches for better browser compatibility
- * Attempts to detect both text and image content
+ * Attempts to detect text, image, and file content
  */
 async function readFromClipboard() {
   try {
-    // First try the modern clipboard API to check for images
+    // Detect OS for better clipboard format handling
+    const operatingSystem = detectOperatingSystem();
+    console.log(`Detected operating system: ${operatingSystem}`);
+    
+    // First try the modern clipboard API to check for images and files
     if (navigator.clipboard && navigator.clipboard.read) {
       try {
-        // This can read both text and images
+        // This can read multiple content types
         const clipboardItems = await navigator.clipboard.read();
+        console.log('Clipboard items found:', clipboardItems.length);
         
-        // Check for images first
+        // Enhanced clipboard format detection
         for (const item of clipboardItems) {
-          // Check if image type is available
+          console.log('Available clipboard formats:', item.types);
+          
+          // Check for images first
           if (item.types.some(type => type.startsWith('image/'))) {
             const imageType = item.types.find(type => type.startsWith('image/'));
+            console.log(`Detected image format: ${imageType}`);
+            
             const blob = await item.getType(imageType);
             // Convert blob to base64 for transmission
             const base64Image = await blobToBase64(blob);
@@ -535,9 +556,95 @@ async function readFromClipboard() {
               imageType
             };
           }
+          
+          // Check for files (cross-platform detection)
+          // Windows: Files, FileContents, etc.
+          // Mac: public.file-url, etc.
+          // Linux: text/uri-list, etc.
+          // General: application/*, etc.
+          const isFile = item.types.some(type => 
+            // Windows formats
+            type === 'Files' || 
+            type.includes('FileContents') ||
+            type.includes('FileGroupDescriptor') ||
+            // Mac formats
+            type === 'public.file-url' ||
+            type.includes('pasteboard.promised-file') ||
+            // Linux formats
+            type === 'text/uri-list' ||
+            type.includes('gnome-copied-files') ||
+            // Generic application formats
+            type === 'application/pdf' ||
+            type.includes('application/') && !type.includes('json') && !type.includes('javascript')
+          );
+          
+          if (isFile) {
+            console.log('File detected in clipboard');
+            
+            // Determine best format to extract based on OS
+            let fileFormat;
+            let fileContent;
+            let fileName = 'clipboard-file';
+            let fileType = 'application/octet-stream';
+            let fileSize = 0;
+            
+            // Extract file information based on available formats
+            if (item.types.includes('application/pdf')) {
+              fileFormat = 'application/pdf';
+              fileName = 'clipboard-document.pdf';
+              fileType = 'application/pdf';
+            } 
+            else if (operatingSystem === 'windows' && item.types.includes('Files')) {
+              fileFormat = 'Files';
+            }
+            else if (operatingSystem === 'mac' && item.types.includes('public.file-url')) {
+              fileFormat = 'public.file-url';
+            }
+            else if (item.types.some(t => t.startsWith('application/'))) {
+              fileFormat = item.types.find(t => t.startsWith('application/'));
+              
+              // Try to determine file extension from type
+              const formatParts = fileFormat.split('/');
+              if (formatParts.length > 1) {
+                const extension = formatParts[1].split('+')[0].split('-')[0];
+                if (extension && extension !== 'octet' && extension !== 'stream') {
+                  fileName = `clipboard-file.${extension}`;
+                  fileType = fileFormat;
+                }
+              }
+            }
+            else {
+              // Use first available format
+              fileFormat = item.types[0];
+            }
+            
+            console.log(`Attempting to extract file with format: ${fileFormat}`);
+            
+            try {
+              // Get file content as blob
+              const blob = await item.getType(fileFormat);
+              fileSize = blob.size;
+              fileContent = await blobToBase64(blob);
+              
+              console.log(`Successfully extracted file: ${fileName}, ${formatFileSize(fileSize)}`);
+              
+              // Return file data
+              return {
+                type: 'file',
+                fileName,
+                fileSize,
+                fileType,
+                fileContent
+              };
+            } catch (fileError) {
+              console.error('Error extracting file from clipboard:', fileError);
+              // Continue to other formats if file extraction fails
+            }
+          }
         }
         
-        // If we get here, no image was found, try text
+        // If we get here, no image or file was found, try text
+        console.log('No image or file found, trying text');
         const text = await navigator.clipboard.readText();
         lastClipboardType = 'text';
         return {
