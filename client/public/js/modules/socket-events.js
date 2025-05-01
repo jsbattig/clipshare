@@ -262,12 +262,39 @@ export function sendClipboardUpdate(content) {
 export function sendFileUpdate(fileData) {
   if (!socket || !socket.connected) {
     console.warn('Cannot send file update: socket not connected');
+    UIManager.displayMessage('Cannot share file: Not connected to server', 'error', 3000);
     return false;
   }
   
+  // Add additional metadata
+  const enhancedFileData = {
+    ...fileData,
+    originClient: socket.id,
+    clientInfo: getBrowserInfo(),
+    timestamp: fileData.timestamp || Date.now()
+  };
+  
+  console.log(`Sending file update: ${enhancedFileData.fileName}, size: ${formatFileSize(enhancedFileData.fileSize)} bytes`);
+  UIManager.displayMessage(`Sharing file with other devices: ${enhancedFileData.fileName}`, 'info', 3000);
+  
   // Use separate file channel for sharing files
-  socket.emit('file-update', fileData);
+  socket.emit('file-update', enhancedFileData);
   return true;
+}
+
+/**
+ * Format file size in a human-readable way
+ * @param {number} bytes - File size in bytes
+ * @returns {string} Formatted file size
+ */
+function formatFileSize(bytes) {
+  if (bytes === undefined || bytes === null) return '0 B';
+  if (bytes === 0) return '0 B';
+  
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  
+  return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 /**

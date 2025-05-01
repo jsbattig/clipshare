@@ -166,6 +166,30 @@ io.on('connection', (socket) => {
     }
   });
   
+  // Handle file updates
+  socket.on('file-update', (fileData) => {
+    const { sessionId } = socket;
+    
+    if (!sessionId) {
+      return; // Client not authenticated
+    }
+    
+    // Add origin client information if not present
+    if (!fileData.originClient) {
+      fileData.originClient = socket.id;
+    }
+    
+    // Timestamp if not present
+    if (!fileData.timestamp) {
+      fileData.timestamp = Date.now();
+    }
+    
+    console.log(`File shared in session ${sessionId}: ${fileData.fileName || 'unnamed file'} (from client ${socket.id})`);
+    
+    // Broadcast to all other clients in the session
+    socket.to(sessionId).emit('file-broadcast', fileData);
+  });
+  
   // Handle client disconnect
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
