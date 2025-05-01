@@ -14,6 +14,62 @@ const socket = io({
   secure: window.location.protocol === 'https:'
 });
 
+/**
+ * Attempts to sync an image to the system clipboard with multiple retries
+ * @param {string} imageData - Base64 encoded image data
+ * @param {string} imageType - MIME type of the image
+ */
+function syncImageToClipboard(imageData, imageType) {
+  let retryCount = 0;
+  
+  // Function to attempt clipboard write
+  const attemptSync = () => {
+    // Only try if the browser supports ClipboardItem
+    if (navigator.clipboard && window.ClipboardItem) {
+      try {
+        // Convert data URL to Blob
+        const blob = dataURLtoBlob(imageData);
+        
+        // Create a ClipboardItem
+        const clipboardItem = new ClipboardItem({
+          [imageType]: blob
+        });
+        
+        navigator.clipboard.write([clipboardItem])
+          .then(() => {
+            console.log('Image successfully written to system clipboard');
+            displayMessage('Image synced to clipboard', 'success', 2000);
+            
+            // Record the time of this successful sync
+            lastSyncAttemptTime = Date.now();
+          })
+          .catch(err => {
+            console.error(`Image clipboard write attempt ${retryCount + 1} failed:`, err);
+            
+            // Try again if we haven't reached the max retries
+            retryCount++;
+            if (retryCount < imageSyncRetries) {
+              console.log(`Will retry image sync in ${imageSyncRetryDelay}ms (attempt ${retryCount + 1}/${imageSyncRetries})`);
+              setTimeout(attemptSync, imageSyncRetryDelay);
+            } else {
+              // Give up after max retries
+              displayMessage('Image available in app (system clipboard sync failed)', 'info', 3000);
+            }
+          });
+      } catch (err) {
+        console.error('Error preparing image for clipboard sync:', err);
+        displayMessage('Image available in app only', 'info', 3000);
+      }
+    } else {
+      // Browser doesn't support needed APIs
+      displayMessage('Image available in app (system clipboard image writing not supported)', 'info', 3000);
+    }
+  };
+  
+  // Start the first attempt
+  attemptSync();
+}
+
 // DOM Elements
 const sessionNameEl = document.getElementById('session-name');
 const connectionStatusEl = document.getElementById('connection-status');
@@ -43,9 +99,14 @@ let clientCount = 1; // Including current client
 let isUserTyping = false; // Track when user is typing
 let typingTimer = null; // Timer for typing detection
 let syncGracePeriod = false; // Flag to prevent sync race conditions
+let lastContentOrigin = 'init'; // Track where content came from: 'local', 'remote', 'manual', 'init'
+let lastSyncAttemptTime = 0; // Track when we last tried to sync to avoid frequent checks
 const typingTimeout = 3000; // 3 seconds before resuming polling
-const syncGracePeriodDuration = 500; // 500ms grace period after receiving updates
+const syncGracePeriodDuration = 3000; // 3 seconds grace period after receiving updates (increased from 500ms)
+const minTimeBetweenSyncs = 2000; // Minimum time between sync attempts
 const maxImageSize = 800; // Maximum size for images before thumbnailing
+const imageSyncRetries = 3; // Number of times to retry syncing images to system clipboard
+const imageSyncRetryDelay = 1000; // Delay between image sync retries
 
 // Check if user is authenticated
 document.addEventListener('DOMContentLoaded', () => {
@@ -337,13 +398,47 @@ function startClipboardMonitoring() {
         contentChanged = clipboardData !== lastClipboardContent;
       }
       
-      // If content changed and not already synced
+      // Skip if we recently received content from another device (within grace period)
+      // or if the last content was from a remote source and our tab is active
+      const now = Date.now();
+      const timeSinceLastSync = now - lastSyncAttemptTime;
+      const shouldPrioritizeAppContent = 
+        document.visibilityState === 'visible' && 
+        lastContentOrigin === 'remote' && 
+        timeSinceLastSync < minTimeBetweenSyncs;
+      
+      // Log debugging info when we detect a potential conflict
+      if (shouldPrioritizeAppContent && contentChanged) {
+        console.log('Prioritizing app content over system clipboard to prevent overwriting remote content');
+        
+        // Force the system clipboard to match our app content instead
+        if (lastClipboardType === 'text' && typeof lastClipboardContent === 'object') {
+          // Update system clipboard with current app content
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(lastClipboardContent.content).catch(err => {
+              console.log('Could not update system clipboard:', err);
+            });
+          }
+        } else if (lastClipboardType === 'image' && typeof lastClipboardContent === 'object') {
+          // For images, retry syncing to system clipboard
+          syncImageToClipboard(
+            lastClipboardContent.content, 
+            lastClipboardContent.imageType || 'image/png'
+          );
+        }
+        return; // Skip processing the change to prevent override
+      }
+      
+      // If content changed and is eligible for sync
       if (contentChanged) {
+        // Mark this content as coming from local system clipboard
+        lastContentOrigin = 'local';
+        
         // Update content in UI and send to server
         updateClipboardContent(clipboardData, true);
         
         // Update UI status
-        updateSyncStatus('Synchronized');
+        updateSyncStatus('Local clipboard change detected');
       }
     } catch (err) {
       console.error('Error reading clipboard:', err);
@@ -814,10 +909,13 @@ socket.on('clipboard-broadcast', (data) => {
   // Enter grace period to prevent immediate re-sync
   syncGracePeriod = true;
   
+  // Mark content as coming from remote
+  lastContentOrigin = 'remote';
+  
   // Update local clipboard content without sending to server
   updateClipboardContent(data, false);
   
-  // Optionally write to system clipboard
+  // Optionally write to system clipboard - with retry logic for images
   if (isMonitoring) {
     try {
       if (data.type === 'text') {
@@ -825,11 +923,14 @@ socket.on('clipboard-broadcast', (data) => {
         navigator.clipboard.writeText(data.content).catch(err => {
           console.error('Error writing text to clipboard:', err);
         });
+        
+        // Record the time of this sync attempt
+        lastSyncAttemptTime = Date.now();
+        
+        console.log('Text content written to system clipboard');
       } else if (data.type === 'image') {
-        // Images are more complex to write to system clipboard
-        // Most browsers don't support writing images to clipboard programmatically
-        // Just notify user that an image is available
-        displayMessage('Image received - view in app', 'info', 3000);
+        // For images, attempt multiple sync retries to improve success rate
+        syncImageToClipboard(data.content, data.imageType || 'image/png');
       }
     } catch (err) {
       console.error('Failed to access clipboard API:', err);
