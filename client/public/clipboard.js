@@ -3,8 +3,16 @@
  * Handles bidirectional clipboard synchronization between devices
  */
 
-// Initialize socket connection
-const socket = io();
+// Initialize socket connection with proxy support
+const socket = io({
+  path: '/socket.io',
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
+  // Auto-detect if we're using HTTPS
+  secure: window.location.protocol === 'https:'
+});
 
 // DOM Elements
 const sessionNameEl = document.getElementById('session-name');
@@ -197,16 +205,51 @@ function stopClipboardMonitoring() {
 }
 
 /**
- * Read from clipboard using Clipboard API
+ * Read from clipboard using multiple methods
+ * Tries different approaches for better browser compatibility
  */
 async function readFromClipboard() {
   try {
-    // Request permission if needed
+    // Method 1: Modern Clipboard API (most browsers with HTTPS)
     if (navigator.clipboard && navigator.clipboard.readText) {
-      return await navigator.clipboard.readText();
-    } else {
-      throw new Error('Clipboard API not supported');
+      try {
+        return await navigator.clipboard.readText();
+      } catch (clipboardApiError) {
+        console.log('Clipboard API failed, trying fallback...', clipboardApiError);
+        // Continue to fallbacks if permission denied or other error
+      }
     }
+    
+    // Method 2: execCommand approach (older browsers)
+    const textarea = document.createElement('textarea');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    
+    let success = false;
+    let text = '';
+    
+    try {
+      // Try to execute paste command
+      success = document.execCommand('paste');
+      if (success) {
+        text = textarea.value;
+      }
+    } catch (execError) {
+      console.log('execCommand approach failed', execError);
+    } finally {
+      document.body.removeChild(textarea);
+    }
+    
+    if (success && text) {
+      return text;
+    }
+    
+    // If we get here, both methods failed
+    throw new Error('Clipboard API not supported');
   } catch (err) {
     console.error('Failed to read clipboard:', err);
     throw err;
@@ -214,26 +257,48 @@ async function readFromClipboard() {
 }
 
 /**
- * Copy content to clipboard
+ * Copy content to clipboard with improved fallbacks
  */
 async function copyToClipboard() {
   const content = clipboardTextarea.value;
   
   try {
+    // Try modern Clipboard API first
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(content);
-      displayMessage('Copied to clipboard', 'success', 2000);
-      
-      // We don't need to send an update since the clipboard monitor
-      // will detect the change and send it automatically
-    } else {
-      // Fallback
+      try {
+        await navigator.clipboard.writeText(content);
+        displayMessage('Copied to clipboard', 'success', 2000);
+        return;
+      } catch (clipboardError) {
+        console.log('Clipboard write API failed, trying fallback...', clipboardError);
+        // Fall through to fallback if this fails
+      }
+    }
+    
+    // Fallback using execCommand
+    try {
+      // Select the text
       clipboardTextarea.select();
-      document.execCommand('copy');
-      displayMessage('Copied to clipboard (fallback method)', 'success', 2000);
+      // For mobile devices
+      clipboardTextarea.setSelectionRange(0, 99999);
+      
+      // Execute copy command
+      const success = document.execCommand('copy');
+      
+      if (success) {
+        displayMessage('Copied to clipboard (fallback method)', 'success', 2000);
+      } else {
+        throw new Error('execCommand copy failed');
+      }
+    } catch (fallbackError) {
+      throw fallbackError; // Re-throw for the outer catch
     }
   } catch (err) {
-    displayMessage('Failed to copy: ' + err.message, 'error');
+    console.error('Copy failed:', err);
+    displayMessage('Failed to copy: ' + (err.message || 'Unknown error'), 'error');
+    
+    // Last resort - prompt user to copy manually
+    displayMessage('Please use Ctrl+C/Cmd+C to copy manually', 'info', 4000);
   }
 }
 

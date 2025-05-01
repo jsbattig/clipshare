@@ -10,6 +10,9 @@ const sessionManager = require('./session-manager');
 const app = express();
 const server = http.createServer(app);
 
+// Trust proxy settings for HAProxy
+app.set('trust proxy', true);
+
 // Configure CORS
 app.use(cors());
 app.use(express.json());
@@ -23,7 +26,12 @@ const io = new Server(server, {
   cors: {
     origin: '*', // Allow all origins in development
     methods: ['GET', 'POST']
-  }
+  },
+  // Add these for proxy support
+  allowEIO3: true,
+  transports: ['websocket', 'polling'],
+  // Handle path and potential proxy issues
+  path: '/socket.io'
 });
 
 // Socket.io connection handler

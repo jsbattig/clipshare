@@ -3,8 +3,16 @@
  * Handles session creation/joining and authentication
  */
 
-// Initialize socket connection
-const socket = io();
+// Initialize socket connection with proxy support
+const socket = io({
+  path: '/socket.io',
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
+  // Auto-detect if we're using HTTPS
+  secure: window.location.protocol === 'https:'
+});
 
 // DOM Elements
 const authForm = document.getElementById('auth-form');

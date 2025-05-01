@@ -125,6 +125,110 @@ ClipShare requires a browser that supports the Clipboard API:
 
 Some browsers may require permission to access the clipboard, which will be requested when you first use the application.
 
+## Deployment with HAProxy
+
+For improved security and clipboard API support, ClipShare can be deployed behind HAProxy with TLS termination.
+
+### Benefits of Using HAProxy
+
+- **HTTPS Support**: Enables secure connections which improve clipboard API permissions in browsers
+- **WebSocket Proxying**: Properly handles WebSocket connections for real-time updates
+- **Load Balancing**: Can distribute traffic across multiple ClipShare instances if needed
+- **TLS Termination**: Handles encryption/decryption, reducing load on application servers
+
+### HAProxy Configuration
+
+Here's a sample HAProxy configuration for ClipShare:
+
+```
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    log global
+    mode http
+    option httplog
+    option dontlognull
+    timeout connect 5000
+    timeout client 50000
+    timeout server 50000
+
+frontend https_front
+    # SSL settings
+    bind *:443 ssl crt /path/to/your/cert.pem
+    
+    # Define ACLs for WebSocket detection
+    acl is_websocket hdr(Upgrade) -i WebSocket
+    
+    # Set headers for WebSocket/HTTPS
+    http-request set-header X-Forwarded-Proto https
+    
+    # Use appropriate backend based on connection type
+    use_backend clipshare_ws if is_websocket
+    default_backend clipshare_http
+
+# HTTP backend - for regular HTTP traffic
+backend clipshare_http
+    balance roundrobin
+    option httpclose
+    option forwardfor
+    server clipshare1 127.0.0.1:3000 check
+
+# WebSocket backend - for WebSocket connections
+backend clipshare_ws
+    balance roundrobin
+    option httpclose
+    option forwardfor
+    server clipshare1 127.0.0.1:3000 check
+```
+
+### Setting Up HAProxy
+
+1. **Install HAProxy**:
+   ```
+   sudo apt-get update
+   sudo apt-get install haproxy
+   ```
+
+2. **Configure HAProxy**:
+   - Save the configuration above to `/etc/haproxy/haproxy.cfg`
+   - Replace `/path/to/your/cert.pem` with your actual SSL certificate path
+   - Adjust the backend server address (127.0.0.1:3000) to match your ClipShare server
+
+3. **Obtain SSL Certificate**:
+   - You can use Let's Encrypt for free certificates:
+     ```
+     sudo apt-get install certbot
+     sudo certbot certonly --standalone -d your-domain.com
+     ```
+   - Combine the cert and key for HAProxy:
+     ```
+     cat /etc/letsencrypt/live/your-domain.com/fullchain.pem /etc/letsencrypt/live/your-domain.com/privkey.pem > /path/to/your/cert.pem
+     ```
+
+4. **Start HAProxy**:
+   ```
+   sudo systemctl restart haproxy
+   ```
+
+5. **Access ClipShare via HTTPS**:
+   ```
+   https://your-domain.com
+   ```
+
+### Troubleshooting
+
+- **WebSocket Connection Issues**: Ensure your HAProxy configuration properly forwards the WebSocket upgrade headers
+- **Certificate Problems**: Verify your certificate is properly formatted and accessible to HAProxy
+- **Connection Timeouts**: Adjust the timeout settings in HAProxy configuration if needed
+
 ## Docker Images
 
 Pre-built Docker images are available on GitHub Packages:
