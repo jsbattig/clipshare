@@ -9,7 +9,7 @@ graph TD
     A[Browser Clients] -->|WebSockets| B[Express.js Server]
     B -->|Session Management| C[In-memory Sessions]
     C -->|Store| D[Current Clipboard Content]
-    A -->|Read/Write| E[Local System Clipboard]
+    A -->|Manual Read/Write| E[Local System Clipboard]
 ```
 
 ## Core System Components
@@ -27,35 +27,31 @@ graph TD
   - JSON-formatted auth data: `{sessionId, passphrase, timestamp}`
 
 ### 2. Clipboard Synchronization Engine
-- **Purpose**: Monitors, broadcasts, and synchronizes clipboard changes
-- **Design Pattern**: Observer pattern via WebSockets
+- **Purpose**: Facilitates manual clipboard content sharing between devices
+- **Design Pattern**: Manual user-initiated events via WebSockets
 - **Key Features**:
   - Real-time broadcasting of clipboard changes
-  - Efficient content diffing to reduce unnecessary updates
+  - Simple content passing between clients through the server
   - Conflict resolution (last update wins)
-  - Content hashing for deduplication
-  - Time-based throttling to prevent ping-pong effects
   - Content-type specific handling (text vs images)
 
-#### Content Deduplication System
-- **Purpose**: Prevents circular updates between clients
-- **Design Pattern**: Two-tier hash-based equality with OS awareness
+#### Simplified Content Synchronization
+- **Purpose**: Provides clear, predictable clipboard synchronization across devices
+- **Design Pattern**: Manual user-initiated operations
 - **Key Components**:
-  - Server-side content hash tracking with timestamps
-  - Client-side window identification via sessionStorage
-  - Multi-sample hashing for reliable image comparison
-  - Normalized content comparison that ignores metadata
-  - Specialized grace periods based on content type (longer for images)
-  - Cross-OS sync detection with different rules for different operating systems
-  - Two-tier content hashing that separates content identity from environment identity
+  - Client-side "Paste" button to read from system clipboard
+  - Client-side "Copy" button to write to system clipboard
+  - Immediate broadcast of changes to all connected clients
+  - No automatic monitoring or complex content comparison
+  - Simplified server-side architecture that acts as pure pass-through
 
-### 3. Client-side Clipboard Monitor
-- **Purpose**: Detects local clipboard changes and applies remote changes
-- **Design Pattern**: Polling pattern with event-driven updates
+### 3. Clipboard Utilities
+- **Purpose**: Provides functions to read from and write to the system clipboard
+- **Design Pattern**: Utility functions with browser fallbacks
 - **Key Features**:
   - Clipboard API integration with permissions handling
-  - Polling mechanism for platforms without clipboard event API
-  - Change detection algorithm to avoid redundant updates
+  - Multiple fallback methods for cross-browser compatibility
+  - Support for text and image content types
 
 ### 4. Authentication Flow
 - **Purpose**: Secures sessions with simple passphrase verification
@@ -108,8 +104,8 @@ The application uses a well-defined WebSocket event system:
   - `dataURLtoBlob(dataUrl)` - Converts Data URLs to Blob objects for clipboard operations
 
 ## Performance Considerations
-- **Efficient Content Diffing**: Only sync changes when content actually differs
-- **Throttled Updates**: Limit update frequency to prevent excessive network traffic
+- **Simplified Architecture**: Eliminated complex monitoring and comparison logic
+- **User-driven Updates**: Updates only occur when explicitly triggered by user
 - **Lazy Reconnection**: Exponential backoff for reconnection attempts
 
 ## Security Model

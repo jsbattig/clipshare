@@ -34,12 +34,13 @@ Initial implementation of the application with:
 - Added detailed logging for tracking clipboard content changes
 
 **Cross-OS Fixes (May 1, 2025):**
-- Fixed cross-OS synchronization issues between Windows and Mac
-- Implemented two-tier content hashing system that handles OS-specific differences
-- Added special detection for legitimate cross-OS synchronization
+- Simplified clipboard synchronization from automatic to manual
+- Removed automatic clipboard monitoring completely
+- Changed to manual paste/copy model for cross-OS compatibility
+- Eliminated clipboard monitoring toggle and related code
+- Added clear manual synchronization instructions to UI
 - Added auto-disappearing error messages (5-second timeout)
-- Enhanced debugging for cross-OS clipboard transfers
-- Reduced ping-pong detection window from 5s to 3s for images to improve cross-OS syncing
+- Renamed ClipboardMonitor to ClipboardUtils to reflect new purpose
 
 ## Next Steps
 Immediate next steps for the project:
@@ -77,11 +78,12 @@ Immediate next steps for the project:
 
 ## Active Decisions & Considerations
 
-### Polling vs. Event-Based Monitoring
-We've chosen polling for clipboard monitoring because:
-- No standardized clipboard change event API exists across browsers
-- Polling provides more consistent behavior across platforms
-- 1-second interval balances responsiveness with performance
+### Manual vs. Automatic Clipboard Operations
+We've switched from automatic monitoring to manual copy/paste because:
+- Eliminates complex cross-OS synchronization issues
+- Provides a more predictable user experience
+- Removes the need for complex content comparison algorithms
+- Ensures clear user intent for all clipboard operations
 
 ### In-Memory Storage
 Current decision to use in-memory storage:
