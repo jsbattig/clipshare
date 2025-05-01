@@ -8,7 +8,7 @@
 import { CONFIG } from './config.js';
 import { getElement, formatFileSize, getFileExtension } from './utils.js';
 import * as UIManager from './ui-manager.js';
-import * as ClipboardMonitor from './clipboard-monitor.js';
+import * as ClipboardUtils from './clipboard-monitor.js';
 
 // Module state
 let currentContentState = CONFIG.contentTypes.EMPTY;
@@ -44,8 +44,7 @@ export function updateClipboardContent(content, sendToServer = false, sendUpdate
     handleTextContent(content);
     currentContentState = CONFIG.contentTypes.TEXT;
     
-    // Update clipboard monitor state
-    ClipboardMonitor.updateContent(clipboardData);
+    // No need to update clipboard monitor state anymore
     
   } else if (typeof content === 'object') {
     // Object format with type field
@@ -71,8 +70,7 @@ export function updateClipboardContent(content, sendToServer = false, sendUpdate
       currentContentState = CONFIG.contentTypes.FILE;
     }
     
-    // Update clipboard monitor state
-    ClipboardMonitor.updateContent(clipboardData);
+    // No need to update clipboard monitor state anymore
   }
   
   // Update content type indicator

@@ -6,7 +6,9 @@
 
 import { CONFIG } from './config.js';
 import * as UIManager from './ui-manager.js';
-import * as ClipboardMonitor from './clipboard-monitor.js';
+// Import basic clipboard utilities (not monitoring)
+// Just importing core functions for manually reading/writing clipboard
+import * as ClipboardUtils from './clipboard-monitor.js';
 import * as ContentHandlers from './content-handlers.js';
 import * as Session from './session.js';
 import { getBrowserInfo, hashContent } from './utils.js';
@@ -166,34 +168,22 @@ function handleClipboardBroadcast(data) {
   
   console.log('Received clipboard update from another device', data.type);
   
-  // Enter grace period to prevent ping-pong updates with appropriate duration for content type
-  ClipboardMonitor.setGracePeriod(true, data.type);
-  
-  // Mark content as coming from remote
-  ClipboardMonitor.setContentOrigin('remote');
-  
   // Handle different content types
   if (data.type === 'file') {
     // File content is handled separately
     handleFileBroadcast(data);
-    // No need to set grace period again as it's already set above
   } else {
-    // Update clipboard content without sending to server
+    // Update app content without sending to server
     if (clipboardUpdateCallback) {
       clipboardUpdateCallback(data, false);
     }
     
-    // Write to system clipboard if monitoring is active
-    if (ClipboardMonitor.getMonitoringState()) {
-      syncToSystemClipboard(data);
-    }
-    
     // Update UI
-    UIManager.updateSyncStatus('Updated from another device');
+    UIManager.updateSyncStatus('Received new content - Click "Copy" to use it');
     UIManager.updateLastUpdated();
     
     const contentTypeMsg = data.type === 'image' ? 'Image' : 'Text';
-    UIManager.displayMessage(`${contentTypeMsg} clipboard updated from another device`, 'info', 2000);
+    UIManager.displayMessage(`${contentTypeMsg} content received from another device. Click "Copy" to use it in your clipboard.`, 'info', 5000);
   }
 }
 
@@ -219,25 +209,25 @@ function handleFileBroadcast(fileData) {
 }
 
 /**
- * Sync content to system clipboard
+ * Manually copy received content to system clipboard
  * @param {Object} data - Content data
+ * @returns {Promise<boolean>} Success status
  */
-function syncToSystemClipboard(data) {
+export async function copyToSystemClipboard(data) {
   try {
-    if (data.type === 'text') {
-      // Text can be written directly
-      navigator.clipboard.writeText(data.content).catch(err => {
-        console.error('Error writing text to clipboard:', err);
-      });
-    } else if (data.type === 'image') {
-      // For images, attempt multiple sync retries
-      ClipboardMonitor.syncImageToClipboard(
-        data.content, 
-        data.imageType || 'image/png'
-      );
+    const result = await ClipboardUtils.writeToClipboard(data);
+    
+    if (result) {
+      UIManager.displayMessage('Copied to clipboard', 'success', 2000);
+    } else {
+      UIManager.displayMessage('Failed to copy to clipboard', 'error', 3000);
     }
+    
+    return result;
   } catch (err) {
     console.error('Failed to access clipboard API:', err);
+    UIManager.displayMessage('Error accessing clipboard: ' + err.message, 'error', 3000);
+    return false;
   }
 }
 
@@ -251,11 +241,10 @@ export function sendClipboardUpdate(content) {
     return false;
   }
   
-  // Add window/browser info to help identify same-device clients
+  // Add basic client info but skip complex hashing/fingerprinting
   const enhancedContent = {
     ...content,
-    clientInfo: getBrowserInfo(),
-    contentHash: hashContent(content)
+    clientInfo: getBrowserInfo()
   };
   
   socket.emit('clipboard-update', enhancedContent);

@@ -2,12 +2,13 @@
  * ClipShare Event Handlers
  * 
  * Handles all user interactions: buttons, drag & drop, input events, etc.
+ * Simplified to use manual clipboard operations instead of automatic monitoring.
  */
 
 import { CONFIG } from './config.js';
 import { getElement } from './utils.js';
 import * as UIManager from './ui-manager.js';
-import * as ClipboardMonitor from './clipboard-monitor.js';
+import * as ClipboardUtils from './clipboard-monitor.js';
 import * as ContentHandlers from './content-handlers.js';
 import * as FileOperations from './file-operations.js';
 import * as SocketEvents from './socket-events.js';
@@ -18,7 +19,6 @@ import * as Session from './session.js';
  */
 export function setupEventListeners() {
   setupClipboardControls();
-  setupMonitoringControls();
   setupSessionControls();
   setupTextareaEvents();
   setupDropZone();
@@ -42,27 +42,16 @@ function setupClipboardControls() {
     clearBtn.addEventListener('click', handleClearButtonClick);
   }
   
-  // Refresh/Paste button
-  const refreshBtn = getElement('refresh-btn');
-  if (refreshBtn) {
-    refreshBtn.addEventListener('click', handleRefreshButtonClick);
-  }
-  
-  // Use local button (for clipboard differences)
-  const useLocalBtn = getElement('use-local-btn');
-  if (useLocalBtn) {
-    useLocalBtn.addEventListener('click', handleUseLocalButtonClick);
-  }
-}
-
-/**
- * Set up monitoring controls
- */
-function setupMonitoringControls() {
-  // Monitoring toggle
-  const monitoringToggle = getElement('monitoring-toggle');
-  if (monitoringToggle) {
-    monitoringToggle.addEventListener('change', handleMonitoringToggleChange);
+  // Paste button (renamed from Refresh)
+  const pasteBtn = getElement('refresh-btn');
+  if (pasteBtn) {
+    pasteBtn.addEventListener('click', handlePasteButtonClick);
+    
+    // Update button text to be clearer about its purpose
+    if (pasteBtn.textContent.trim() === 'Refresh') {
+      pasteBtn.textContent = 'Paste';
+      pasteBtn.title = 'Paste from your clipboard';
+    }
   }
 }
 
@@ -85,19 +74,6 @@ function setupTextareaEvents() {
   if (clipboardTextarea) {
     // Input event (typing)
     clipboardTextarea.addEventListener('input', handleTextareaInput);
-    
-    // Focus event
-    clipboardTextarea.addEventListener('focus', () => {
-      ClipboardMonitor.setUserTyping(true, UIManager.updateSyncStatus);
-    });
-    
-    // Blur event
-    clipboardTextarea.addEventListener('blur', () => {
-      // Short delay before resuming to handle click+focus sequence
-      setTimeout(() => {
-        ClipboardMonitor.setUserTyping(false, UIManager.updateSyncStatus);
-      }, 500);
-    });
   }
 }
 
@@ -197,7 +173,7 @@ function setupKeyboardEvents() {
 }
 
 /**
- * Handle copy button click
+ * Handle copy button click - copies from app to system clipboard
  */
 function handleCopyButtonClick() {
   ContentHandlers.copyToClipboard();
@@ -228,11 +204,11 @@ function handleClearButtonClick() {
 }
 
 /**
- * Handle refresh/paste button click
+ * Handle paste button click - reads from system clipboard into app
  */
-async function handleRefreshButtonClick() {
+async function handlePasteButtonClick() {
   try {
-    const clipboardData = await ClipboardMonitor.readFromClipboard();
+    const clipboardData = await ClipboardUtils.readFromClipboard();
     
     // Only handle text and image content types - files use the drop zone
     if (clipboardData && (clipboardData.type === 'text' || clipboardData.type === 'image')) {
@@ -241,7 +217,7 @@ async function handleRefreshButtonClick() {
         true, 
         SocketEvents.sendClipboardUpdate
       );
-      UIManager.displayMessage('Clipboard refreshed', 'info', 2000);
+      UIManager.displayMessage('Content pasted from clipboard', 'info', 2000);
     } else {
       // If a file is detected or we can't determine the type, show drop zone
       UIManager.showDropZone('Please drag & drop files to share them');
@@ -250,63 +226,8 @@ async function handleRefreshButtonClick() {
     // If any error occurs, try showing drop zone as fallback
     UIManager.showDropZone('Cannot access clipboard - Please drag and drop files');
     console.error('Failed to read clipboard:', err);
-    UIManager.displayMessage(err.message, 'error', 3000);
+    UIManager.displayMessage('Error reading clipboard: ' + err.message, 'error', 5000);
   }
-}
-
-/**
- * Handle "Use Local" button click
- */
-async function handleUseLocalButtonClick() {
-  try {
-    const clipboardContent = await ClipboardMonitor.readFromClipboard();
-    
-    ContentHandlers.updateClipboardContent(
-      clipboardContent, 
-      true, 
-      SocketEvents.sendClipboardUpdate
-    );
-    
-    // Hide the diff banner
-    UIManager.showDiffBanner(false);
-    
-    UIManager.displayMessage('Remote clipboard updated with local content', 'success', 2000);
-  } catch (err) {
-  UIManager.displayMessage('Failed to read clipboard: ' + err.message, 'error', 5000);
-  }
-}
-
-/**
- * Handle monitoring toggle change
- */
-function handleMonitoringToggleChange() {
-  const monitoringToggle = getElement('monitoring-toggle');
-  if (!monitoringToggle) return;
-  
-  const isActive = monitoringToggle.checked;
-  
-  if (isActive) {
-    ClipboardMonitor.startMonitoring(
-      (content, sendToServer) => {
-        ContentHandlers.updateClipboardContent(
-          content, 
-          sendToServer, 
-          SocketEvents.sendClipboardUpdate
-        );
-      },
-      UIManager.updateSyncStatus
-    );
-    UIManager.setMonitoringStatus(true);
-  } else {
-    ClipboardMonitor.stopMonitoring();
-    UIManager.setMonitoringStatus(false);
-  }
-  
-  UIManager.displayMessage(
-    isActive ? 'Clipboard monitoring enabled' : 'Clipboard monitoring disabled', 
-    'info', 
-    2000
-  );
 }
 
 /**
@@ -316,26 +237,7 @@ function handleTextareaInput() {
   const clipboardTextarea = getElement('clipboard-content');
   if (!clipboardTextarea) return;
   
-  // Set typing flag to prevent clipboard polling
-  ClipboardMonitor.setUserTyping(true, UIManager.updateSyncStatus);
-  
   const newContent = clipboardTextarea.value;
-  
-  // Check current content type
-  const currentType = ClipboardMonitor.getCurrentType();
-  
-  // If we were showing an image, hide it when user starts typing
-  if (currentType === 'image') {
-    const imageContainer = getElement('image-container');
-    if (imageContainer && !imageContainer.classList.contains('hidden')) {
-      // Hide the image container
-      imageContainer.classList.add('hidden');
-      // Reset the placeholder
-      clipboardTextarea.placeholder = "Clipboard content will appear here. Type or paste content to share it with all connected devices.";
-      
-      UIManager.displayMessage('Switched to text mode', 'info', 2000);
-    }
-  }
   
   // Create text content object
   const contentData = {
@@ -344,19 +246,15 @@ function handleTextareaInput() {
     timestamp: Date.now()
   };
   
-  // Send update to server
-  SocketEvents.sendClipboardUpdate(contentData);
-  
   // Update UI
-  UIManager.updateSyncStatus('Synchronized');
-  UIManager.updateLastUpdated();
+  UIManager.updateSyncStatus('Sending text update...');
   
-  // Update system clipboard with what user typed to prevent overwrite when polling resumes
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(newContent).catch(err => {
-      console.log('Could not write to clipboard:', err);
-      // Non-critical error, continue anyway
-    });
+  // Send update to server
+  if (SocketEvents.sendClipboardUpdate(contentData)) {
+    UIManager.updateSyncStatus('Text sent to connected devices');
+    UIManager.updateLastUpdated();
+  } else {
+    UIManager.updateSyncStatus('Failed to send - check connection');
   }
 }
 
@@ -405,6 +303,5 @@ function handleZipCreated(zipData) {
  * Handle logout button click
  */
 function handleLogoutButtonClick() {
-  ClipboardMonitor.stopMonitoring();
   Session.logout();
 }

@@ -1,324 +1,16 @@
 /**
- * ClipShare Clipboard Monitor
+ * ClipShare Clipboard Utilities
  * 
- * Handles monitoring the system clipboard for changes and
- * reading content from the clipboard using various methods.
+ * Provides basic clipboard reading and writing functionality.
+ * All clipboard operations are now manual (no automatic monitoring).
  */
 
 import { CONFIG } from './config.js';
 import { 
   detectOperatingSystem, 
   blobToBase64, 
-  dataURLtoBlob, 
-  generateImageHash, 
-  normalizeImageContent
+  dataURLtoBlob 
 } from './utils.js';
-import * as UIManager from './ui-manager.js';
-
-// Module state
-let pollingInterval = null;
-let isMonitoring = true;
-let isUserTyping = false;
-let syncGracePeriod = false;
-let lastClipboardContent = '';
-let lastClipboardType = 'text';
-let lastClipboardTimestamp = Date.now();
-let lastContentOrigin = 'init';
-let lastSyncAttemptTime = 0;
-let typingTimer = null;
-
-/**
- * Initialize the clipboard monitor module
- * @param {Object} initialState - Initial state for the monitor
- */
-export function init(initialState = {}) {
-  // Apply initial state if provided
-  if (initialState.isMonitoring !== undefined) isMonitoring = initialState.isMonitoring;
-  if (initialState.lastClipboardContent) lastClipboardContent = initialState.lastClipboardContent;
-  if (initialState.lastClipboardType) lastClipboardType = initialState.lastClipboardType;
-}
-
-/**
- * Start monitoring the clipboard for changes
- * @param {Function} onContentChanged - Callback for content changes
- * @param {Function} updateUI - Callback to update UI
- */
-export function startMonitoring(onContentChanged, updateUI) {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-  }
-  
-  isMonitoring = true;
-  
-  // Poll clipboard at regular intervals
-  pollingInterval = setInterval(async () => {
-    // Skip if not monitoring, user is typing, or we're in grace period
-    if (!isMonitoring || isUserTyping || syncGracePeriod) return;
-    
-    try {
-      const clipboardData = await readFromClipboard();
-      
-      // Skip if no data retrieved
-      if (!clipboardData) return;
-      
-      // Skip file detection in clipboard monitoring
-      if (clipboardData.type === 'file') {
-        console.log('File detected in clipboard but ignoring - use drop zone instead');
-        return;
-      }
-      
-      // Add timestamp if missing
-      if (typeof clipboardData === 'object' && !clipboardData.timestamp) {
-        clipboardData.timestamp = Date.now();
-      }
-      
-      // Check if content has changed
-      if (hasContentChanged(clipboardData)) {
-        // Skip if we should prioritize app content
-        if (shouldPrioritizeAppContent()) {
-          forceSystemClipboardToMatchApp();
-          return;
-        }
-        
-        // Content has changed - update and notify
-        lastContentOrigin = 'local';
-        
-        // Notify callback
-        if (onContentChanged) {
-          onContentChanged(clipboardData, true);
-        }
-        
-        // Update UI status
-        if (updateUI) {
-          updateUI('Local clipboard change detected');
-        }
-      }
-    } catch (err) {
-      console.error('Error reading clipboard:', err);
-      if (updateUI) {
-        // Add auto-hide timeout of 5 seconds for error messages
-        updateUI('Error reading clipboard', 5000);
-      }
-    }
-  }, CONFIG.polling.interval);
-  
-  return true;
-}
-
-/**
- * Stop clipboard monitoring
- */
-export function stopMonitoring() {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-    pollingInterval = null;
-  }
-  
-  isMonitoring = false;
-  return true;
-}
-
-/**
- * Set user typing state
- * @param {boolean} typing - Whether user is typing
- * @param {Function} updateUI - UI update callback
- */
-export function setUserTyping(typing, updateUI) {
-  // Clear existing timer if any
-  if (typingTimer) {
-    clearTimeout(typingTimer);
-    typingTimer = null;
-  }
-  
-  isUserTyping = typing;
-  
-  // If user stopped typing, set a timer to resume monitoring
-  if (!typing) {
-    // Resume immediately
-    if (updateUI) updateUI('Monitoring resumed');
-  } else {
-    // Set timer to resume after timeout
-    typingTimer = setTimeout(() => {
-      isUserTyping = false;
-      if (updateUI) updateUI('Monitoring resumed');
-    }, CONFIG.polling.typingTimeout);
-  }
-}
-
-/**
- * Set grace period state
- * @param {boolean} inGracePeriod - Whether in grace period
- * @param {string} contentType - Type of content ('text', 'image')
- */
-export function setGracePeriod(inGracePeriod, contentType = 'text') {
-  syncGracePeriod = inGracePeriod;
-  
-  // Auto clear after timeout - use longer period for images
-  if (inGracePeriod) {
-    const duration = contentType === 'image'
-      ? CONFIG.sync.imageGracePeriodDuration  // Use longer grace period for images
-      : CONFIG.sync.syncGracePeriodDuration;
-    
-    console.log(`Setting grace period for ${duration}ms for ${contentType} content`);
-    
-    setTimeout(() => {
-      syncGracePeriod = false;
-      console.log('Grace period ended');
-    }, duration);
-  }
-}
-
-/**
- * Check if content has changed
- * @param {Object|string} newContent - New clipboard content
- * @returns {boolean} True if content has changed
- */
-function hasContentChanged(newContent) {
-  // Special handling for images
-  if (typeof newContent === 'object' && newContent.type === 'image') {
-    return hasImageContentChanged(newContent);
-  }
-  
-  // For text and other content
-  const newBaseContent = getBaseContent(newContent);
-  const lastBaseContent = getBaseContent(lastClipboardContent);
-  
-  // If content is exactly the same, no change
-  if (newBaseContent === lastBaseContent) {
-    return false;
-  }
-  
-  // Compare with simple hash for non-image content
-  const newContentHash = hashContent(newContent);
-  const lastContentHash = hashContent(lastClipboardContent);
-  
-  // If hash matches, content is the same despite metadata differences
-  if (newContentHash === lastContentHash) {
-    return false;
-  }
-  
-  return true;
-}
-
-/**
- * Compare image content more robustly
- * @param {Object} newImage - New image content
- * @returns {boolean} True if content has changed
- */
-function hasImageContentChanged(newImage) {
-  // If we don't have previous content or it wasn't an image, this is a change
-  if (!lastClipboardContent || 
-      typeof lastClipboardContent !== 'object' || 
-      lastClipboardContent.type !== 'image') {
-    return true;
-  }
-  
-  try {
-    // Normalize the images to remove metadata variations
-    const normalizedNew = normalizeImageContent(newImage);
-    const normalizedLast = normalizeImageContent(lastClipboardContent);
-    
-    // Generate robust image hashes
-    const newHash = generateImageHash(normalizedNew.content);
-    const lastHash = generateImageHash(normalizedLast.content);
-    
-    // Add extra logging for debugging
-    console.log('Image comparison:', {
-      hashesMatch: newHash === lastHash,
-      newImageType: newImage.imageType,
-      lastImageType: lastClipboardContent.imageType
-    });
-    
-    // If hashes match, images are the same
-    if (newHash === lastHash) {
-      return false;
-    }
-    
-    // As a backup check, compare base64 data without headers
-    const newBase64 = newImage.content.split(',')[1] || '';
-    const lastBase64 = lastClipboardContent.content.split(',')[1] || '';
-    
-    if (newBase64 === lastBase64) {
-      console.log('Base64 content matches despite different hashes');
-      return false;
-    }
-    
-    return true;
-  } catch (err) {
-    console.error('Error comparing image content:', err);
-    
-    // Fall back to string comparison
-    return newImage.content !== lastClipboardContent.content;
-  }
-}
-
-/**
- * Extract the base content without metadata
- * @param {Object|string} content - Content object or string
- * @returns {string} The actual content without metadata
- */
-function getBaseContent(content) {
-  if (typeof content === 'string') return content;
-  if (typeof content === 'object') {
-    if (content.type === 'text') return content.content;
-    if (content.type === 'image') return content.content;
-  }
-  return JSON.stringify(content);
-}
-
-/**
- * Generate a simple hash of content for comparison
- * @param {Object|string} content - Content to hash
- * @returns {string} Content hash
- */
-function hashContent(content) {
-  if (typeof content === 'string') return content;
-  
-  if (typeof content === 'object') {
-    if (content.type === 'text') return content.content;
-    if (content.type === 'image') {
-      return generateImageHash(content.content);
-    }
-  }
-  
-  return JSON.stringify(content);
-}
-
-/**
- * Check if we should prioritize app content over system clipboard
- * @returns {boolean} True if app content should be prioritized
- */
-function shouldPrioritizeAppContent() {
-  const now = Date.now();
-  const timeSinceLastSync = now - lastSyncAttemptTime;
-  
-  return document.visibilityState === 'visible' && 
-         lastContentOrigin === 'remote' && 
-         timeSinceLastSync < CONFIG.sync.minTimeBetweenSyncs;
-}
-
-/**
- * Force system clipboard to match app content
- */
-function forceSystemClipboardToMatchApp() {
-  console.log('Prioritizing app content over system clipboard to prevent overwriting remote content');
-  
-  // Force the system clipboard to match our app content instead
-  if (lastClipboardType === 'text' && typeof lastClipboardContent === 'object') {
-    // Update system clipboard with current app content
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(lastClipboardContent.content).catch(err => {
-        console.log('Could not update system clipboard:', err);
-      });
-    }
-  } else if (lastClipboardType === 'image' && typeof lastClipboardContent === 'object') {
-    // For images, retry syncing to system clipboard
-    syncImageToClipboard(
-      lastClipboardContent.content, 
-      lastClipboardContent.imageType || 'image/png'
-    );
-  }
-}
 
 /**
  * Read from clipboard using multiple methods
@@ -350,14 +42,12 @@ export async function readFromClipboard() {
             // Convert blob to base64 for transmission
             const base64Image = await blobToBase64(blob);
             
-            // Set content type to image
-            lastClipboardType = 'image';
-            
             // Return image data in the correct format
             return {
               type: 'image',
               content: base64Image,
-              imageType
+              imageType,
+              timestamp: Date.now()
             };
           }
           
@@ -368,10 +58,10 @@ export async function readFromClipboard() {
         // If we get here, no image was found, try text
         console.log('No image found, trying text');
         const text = await navigator.clipboard.readText();
-        lastClipboardType = 'text';
         return {
           type: 'text',
-          content: text
+          content: text,
+          timestamp: Date.now()
         };
       } catch (clipboardApiError) {
         console.log('Modern Clipboard API failed, trying text fallback...', clipboardApiError);
@@ -383,10 +73,10 @@ export async function readFromClipboard() {
     if (navigator.clipboard && navigator.clipboard.readText) {
       try {
         const text = await navigator.clipboard.readText();
-        lastClipboardType = 'text';
         return {
           type: 'text',
-          content: text
+          content: text,
+          timestamp: Date.now()
         };
       } catch (textReadError) {
         console.log('Text clipboard read failed, trying execCommand...', textReadError);
@@ -410,10 +100,10 @@ export async function readFromClipboard() {
       success = document.execCommand('paste');
       if (success) {
         text = textarea.value;
-        lastClipboardType = 'text';
         return {
           type: 'text',
-          content: text
+          content: text,
+          timestamp: Date.now()
         };
       }
     } catch (execError) {
@@ -431,15 +121,45 @@ export async function readFromClipboard() {
 }
 
 /**
- * Sync an image to the system clipboard
+ * Write text to system clipboard
+ * @param {string} text - Text to write
+ * @returns {Promise<boolean>} Success status
+ */
+export async function writeTextToClipboard(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } else {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      
+      return success;
+    }
+  } catch (err) {
+    console.error('Failed to write to clipboard:', err);
+    return false;
+  }
+}
+
+/**
+ * Write image to system clipboard
  * @param {string} dataUrl - Image data URL
  * @param {string} imageType - MIME type of the image
- * @param {number} retryCount - Number of times to retry (internal)
+ * @returns {Promise<boolean>} Success status
  */
-export function syncImageToClipboard(dataUrl, imageType, retryCount = 0) {
+export async function writeImageToClipboard(dataUrl, imageType) {
   if (!window.ClipboardItem) {
-    console.log('ClipboardItem not supported, cannot sync images to system clipboard');
-    return;
+    console.log('ClipboardItem not supported, cannot write images to clipboard');
+    return false;
   }
   
   try {
@@ -448,87 +168,31 @@ export function syncImageToClipboard(dataUrl, imageType, retryCount = 0) {
       [imageType]: blob
     });
     
-    navigator.clipboard.write([clipboardItem]).catch(err => {
-      console.error('Error syncing image to clipboard:', err);
-      
-      // Retry logic
-      if (retryCount < CONFIG.sync.imageSyncRetries) {
-        setTimeout(() => {
-          syncImageToClipboard(dataUrl, imageType, retryCount + 1);
-        }, CONFIG.sync.imageSyncRetryDelay);
-      }
-    });
+    await navigator.clipboard.write([clipboardItem]);
+    return true;
   } catch (err) {
-    console.error('Failed to prepare image for clipboard:', err);
+    console.error('Failed to write image to clipboard:', err);
+    return false;
   }
 }
 
 /**
- * Update the module's state with new clipboard content
- * @param {Object} content - New clipboard content
+ * Write content to clipboard based on type
+ * @param {Object} content - Content object with type and content
+ * @returns {Promise<boolean>} Success status
  */
-export function updateContent(content) {
-  if (typeof content === 'string') {
-    lastClipboardContent = content;
-    lastClipboardType = 'text';
-  } else if (typeof content === 'object') {
-    lastClipboardContent = content;
-    lastClipboardType = content.type || 'text';
-    
-    if (content.timestamp) {
-      lastClipboardTimestamp = content.timestamp;
-    } else {
-      lastClipboardTimestamp = Date.now();
-      content.timestamp = lastClipboardTimestamp;
-    }
-  }
+export async function writeToClipboard(content) {
+  if (!content) return false;
   
-  // Update last sync time
-  lastSyncAttemptTime = Date.now();
-}
-
-/**
- * Manually refresh from clipboard
- * @param {Function} onContentChanged - Callback for content changes
- */
-export async function refreshFromClipboard(onContentChanged) {
   try {
-    const clipboardData = await readFromClipboard();
-    
-    // Only update if we actually get a value and it's different
-    if (clipboardData && hasContentChanged(clipboardData)) {
-      if (onContentChanged) {
-        onContentChanged(clipboardData, true);
-      }
-      return true;
+    if (content.type === 'text') {
+      return await writeTextToClipboard(content.content);
+    } else if (content.type === 'image') {
+      return await writeImageToClipboard(content.content, content.imageType || 'image/png');
     }
+    return false;
   } catch (err) {
-    console.error('Error refreshing from clipboard:', err);
+    console.error('Error writing to clipboard:', err);
+    return false;
   }
-  
-  return false;
-}
-
-/**
- * Set content origin (local, remote, manual, init)
- * @param {string} origin - Content origin
- */
-export function setContentOrigin(origin) {
-  lastContentOrigin = origin;
-}
-
-/**
- * Get monitoring state
- * @returns {boolean} Current monitoring state
- */
-export function getMonitoringState() {
-  return isMonitoring;
-}
-
-/**
- * Get current clipboard type
- * @returns {string} Current clipboard type
- */
-export function getCurrentType() {
-  return lastClipboardType;
 }
