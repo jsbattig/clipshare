@@ -38,6 +38,12 @@ const io = new Server(server, {
 io.on('connection', (socket) => {
   console.log(`New client connected: ${socket.id}`);
   
+  // Store socket's client ID for heartbeat system
+  socket.clientIdentifier = socket.id;
+
+  // Set up heartbeat interval for this socket
+  let heartbeatInterval = null;
+  
   // Handle session join/create
   socket.on('join-session', (data, callback) => {
     const { sessionId, passphrase } = data;
@@ -74,11 +80,30 @@ io.on('connection', (socket) => {
         clientCount: clientCount
       });
       
+      // Broadcast updated client count to ALL clients in the session (including sender)
+      io.to(sessionId).emit('client-count-update', { 
+        clientCount: clientCount
+      });
+      
       // Notify other clients that a new client joined
       socket.to(sessionId).emit('client-joined', { 
         clientId: socket.id,
         clientCount: clientCount
       });
+      
+      // Set up heartbeat interval to periodically broadcast client count
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
+      
+      heartbeatInterval = setInterval(() => {
+        if (socket.sessionId) {
+          const currentCount = sessionManager.getClientCount(socket.sessionId);
+          io.to(socket.sessionId).emit('client-count-update', { 
+            clientCount: currentCount 
+          });
+        }
+      }, 10000); // Every 10 seconds
     } else {
       // Authentication failed
       callback(result);
@@ -87,41 +112,78 @@ io.on('connection', (socket) => {
   
   // Handle clipboard updates
   socket.on('clipboard-update', (data) => {
-    const { content, type = 'text' } = data;
+    const { content, type = 'text', timestamp } = data;
     const { sessionId } = socket;
     
     if (!sessionId) {
       return; // Client not authenticated
     }
     
-    // Create properly formatted clipboard data
-    const clipboardData = typeof content === 'string' && !type ? 
-      { type: 'text', content } : // Legacy format
-      { type, content };          // New format
+    // Create properly formatted clipboard data with timestamp
+    let clipboardData;
+    if (typeof content === 'string' && !type) {
+      // Legacy format
+      clipboardData = { 
+        type: 'text', 
+        content,
+        timestamp: timestamp || Date.now()
+      };
+    } else {
+      // New format
+      clipboardData = { 
+        type, 
+        content,
+        timestamp: timestamp || Date.now()
+      };
+      
+      // Preserve imageType if available
+      if (type === 'image' && data.imageType) {
+        clipboardData.imageType = data.imageType;
+      }
+    }
     
-    // Update clipboard content in session
-    sessionManager.updateClipboardContent(sessionId, clipboardData);
+    // Update clipboard content in session, tracking origin client
+    const wasUpdated = sessionManager.updateClipboardContent(
+      sessionId, 
+      clipboardData, 
+      socket.id
+    );
     
-    // Broadcast to all other clients in the session
-    socket.to(sessionId).emit('clipboard-broadcast', clipboardData);
-    
-    console.log(`Clipboard updated (${type}) in session ${sessionId}`);
+    // Only broadcast if update was actually applied (prevents update loops)
+    if (wasUpdated) {
+      // Broadcast to all other clients in the session
+      socket.to(sessionId).emit('clipboard-broadcast', clipboardData);
+      console.log(`Clipboard updated (${type}) in session ${sessionId} by client ${socket.id}`);
+    } else {
+      console.log(`Clipboard update rejected (older timestamp) in session ${sessionId}`);
+    }
   });
   
   // Handle client disconnect
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
     
+    // Clear heartbeat interval
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+    
     const { sessionId } = socket;
     if (sessionId) {
       // Remove client from session
       sessionManager.removeClientFromSession(sessionId, socket.id);
       
-      // Calculate client count (needs to be -1 since this client is still in the count)
+      // Get accurate client count from session manager
       const remainingClients = sessionManager.getClientCount(sessionId);
       
+      // Broadcast updated client count to ALL remaining clients
+      io.to(sessionId).emit('client-count-update', { 
+        clientCount: remainingClients 
+      });
+      
       // Notify other clients about disconnection
-      socket.to(sessionId).emit('client-left', { 
+      io.to(sessionId).emit('client-left', { 
         clientId: socket.id,
         clientCount: remainingClients
       });

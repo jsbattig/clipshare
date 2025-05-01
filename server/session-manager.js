@@ -37,10 +37,13 @@ function joinSession(sessionId, passphrase) {
       passphrase,
       clipboard: {
         type: 'text',
-        content: ''
+        content: '',
+        timestamp: Date.now(),
+        originClient: null
       },
       createdAt: new Date(),
-      clients: []
+      clients: [],
+      lastHeartbeat: Date.now()
     };
     
     return { 
@@ -54,11 +57,16 @@ function joinSession(sessionId, passphrase) {
 /**
  * Get the current clipboard content for a session
  * @param {string} sessionId - The session identifier
- * @returns {Object} Current clipboard object with type and content
+ * @returns {Object} Current clipboard object with type, content, timestamp and originClient
  */
 function getClipboardContent(sessionId) {
   if (!sessions[sessionId]) {
-    return { type: 'text', content: '' };
+    return { 
+      type: 'text', 
+      content: '',
+      timestamp: Date.now(),
+      originClient: null
+    };
   }
   
   // Handle backward compatibility with old format (string only)
@@ -66,8 +74,19 @@ function getClipboardContent(sessionId) {
     // Migrate old format to new format
     sessions[sessionId].clipboard = {
       type: 'text',
-      content: sessions[sessionId].clipboard
+      content: sessions[sessionId].clipboard,
+      timestamp: Date.now(),
+      originClient: null
     };
+  }
+  
+  // Handle partially-migrated format (missing timestamp or originClient)
+  if (!sessions[sessionId].clipboard.timestamp) {
+    sessions[sessionId].clipboard.timestamp = Date.now();
+  }
+  
+  if (!sessions[sessionId].clipboard.hasOwnProperty('originClient')) {
+    sessions[sessionId].clipboard.originClient = null;
   }
   
   return sessions[sessionId].clipboard;
@@ -76,22 +95,63 @@ function getClipboardContent(sessionId) {
 /**
  * Update the clipboard content for a session
  * @param {string} sessionId - The session identifier
- * @param {Object|string} content - New clipboard content (object with type and content or legacy string)
+ * @param {Object|string} content - New clipboard content
+ * @param {string} originClient - Client ID that originated this update
+ * @returns {boolean} True if update was applied, false if rejected (older timestamp)
  */
-function updateClipboardContent(sessionId, content) {
-  if (!sessions[sessionId]) return;
+function updateClipboardContent(sessionId, content, originClient) {
+  if (!sessions[sessionId]) return false;
+  
+  // Get current clipboard state
+  const currentClipboard = getClipboardContent(sessionId);
+  
+  // Prepare new clipboard object
+  let newClipboard;
   
   // Handle different input formats
   if (typeof content === 'string') {
     // Legacy format - convert to object
-    sessions[sessionId].clipboard = {
+    newClipboard = {
       type: 'text',
-      content: content
+      content: content,
+      timestamp: Date.now(),
+      originClient: originClient
     };
-  } else if (typeof content === 'object' && (content.type === 'text' || content.type === 'image')) {
-    // New format - typed content
-    sessions[sessionId].clipboard = content;
+  } else if (typeof content === 'object') {
+    if (content.type === 'text' || content.type === 'image') {
+      // New format with explicit timestamp
+      newClipboard = {
+        type: content.type,
+        content: content.content,
+        timestamp: content.timestamp || Date.now(),
+        originClient: originClient
+      };
+      
+      // If we have imageType, preserve it
+      if (content.type === 'image' && content.imageType) {
+        newClipboard.imageType = content.imageType;
+      }
+    } else {
+      // Invalid content type
+      return false;
+    }
+  } else {
+    // Invalid content format
+    return false;
   }
+  
+  // Only update if the new timestamp is newer or equal but from different client
+  // This prevents race conditions and update loops
+  if (newClipboard.timestamp > currentClipboard.timestamp || 
+      (newClipboard.timestamp === currentClipboard.timestamp && 
+       newClipboard.originClient !== currentClipboard.originClient)) {
+    
+    sessions[sessionId].clipboard = newClipboard;
+    return true;
+  }
+  
+  // Reject update with older timestamp
+  return false;
 }
 
 /**

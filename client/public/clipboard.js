@@ -38,10 +38,13 @@ let isMonitoring = true;
 let pollingInterval = null;
 let lastClipboardContent = '';
 let lastClipboardType = 'text'; // Track content type (text/image)
+let lastClipboardTimestamp = Date.now(); // Timestamp for versioning
 let clientCount = 1; // Including current client
 let isUserTyping = false; // Track when user is typing
 let typingTimer = null; // Timer for typing detection
+let syncGracePeriod = false; // Flag to prevent sync race conditions
 const typingTimeout = 3000; // 3 seconds before resuming polling
+const syncGracePeriodDuration = 500; // 500ms grace period after receiving updates
 const maxImageSize = 800; // Maximum size for images before thumbnailing
 
 // Check if user is authenticated
@@ -183,11 +186,20 @@ function setupEventListeners() {
       displayMessage('Switched to text mode', 'info', 2000);
     }
     
-    // Update last known content
-    lastClipboardContent = { type: 'text', content: newContent };
+    // Update last known content with timestamp
+    lastClipboardTimestamp = Date.now();
+    lastClipboardContent = { 
+      type: 'text', 
+      content: newContent,
+      timestamp: lastClipboardTimestamp
+    };
     
-    // Send update to server as text type
-    sendClipboardUpdate({ type: 'text', content: newContent });
+    // Send update to server as text type with timestamp
+    sendClipboardUpdate({ 
+      type: 'text', 
+      content: newContent,
+      timestamp: lastClipboardTimestamp
+    });
     
     // Update UI
     updateSyncStatus('Synchronized');
@@ -264,11 +276,17 @@ function startClipboardMonitoring() {
   
   // Poll clipboard every second
   pollingInterval = setInterval(async () => {
-    // Skip clipboard check if user is actively typing or monitoring is disabled
-    if (!isMonitoring || isUserTyping) return;
+    // Skip clipboard check if user is actively typing, monitoring is disabled,
+    // or if we're in the grace period after receiving an update
+    if (!isMonitoring || isUserTyping || syncGracePeriod) return;
     
     try {
       const clipboardData = await readFromClipboard();
+      
+      // Add timestamp to clipboard data if it doesn't have one
+      if (typeof clipboardData === 'object' && !clipboardData.timestamp) {
+        clipboardData.timestamp = Date.now();
+      }
       
       // Compare based on type and content
       let contentChanged = false;
@@ -288,7 +306,7 @@ function startClipboardMonitoring() {
       
       // If content changed and not already synced
       if (contentChanged) {
-        // Update content in UI
+        // Update content in UI and send to server
         updateClipboardContent(clipboardData, true);
         
         // Update UI status
@@ -586,14 +604,24 @@ function handleImageContent(imageData, imageType) {
 function sendClipboardUpdate(content) {
   if (!isConnected) return;
   
-  // If content is a string (legacy), convert to object format
+  // If content is a string (legacy), convert to object format with timestamp
   if (typeof content === 'string') {
+    const timestamp = Date.now();
+    lastClipboardTimestamp = timestamp;
+    
     socket.emit('clipboard-update', { 
       type: 'text',
-      content 
+      content,
+      timestamp
     });
   } else {
-    // Content is already in the correct format
+    // Make sure content has a timestamp
+    if (!content.timestamp) {
+      content.timestamp = Date.now();
+      lastClipboardTimestamp = content.timestamp;
+    }
+    
+    // Content is in the correct format
     socket.emit('clipboard-update', content);
   }
 }
@@ -679,7 +707,22 @@ socket.on('connect_error', () => {
 
 // Handle clipboard updates from other clients
 socket.on('clipboard-broadcast', (data) => {
-  // Update local clipboard content
+  // Check if this update is newer than our current content
+  // If not, ignore it to prevent update loops
+  if (data.timestamp && data.timestamp <= lastClipboardTimestamp) {
+    console.log('Ignoring older or same-age clipboard update');
+    return;
+  }
+  
+  // Update our timestamp tracking with this newer timestamp
+  if (data.timestamp) {
+    lastClipboardTimestamp = data.timestamp;
+  }
+  
+  // Enter grace period to prevent immediate re-sync
+  syncGracePeriod = true;
+  
+  // Update local clipboard content without sending to server
   updateClipboardContent(data, false);
   
   // Optionally write to system clipboard
@@ -707,6 +750,11 @@ socket.on('clipboard-broadcast', (data) => {
   
   const contentTypeMsg = data.type === 'image' ? 'Image' : 'Text';
   displayMessage(`${contentTypeMsg} clipboard updated from another device`, 'info', 2000);
+  
+  // End grace period after short delay
+  setTimeout(() => {
+    syncGracePeriod = false;
+  }, syncGracePeriodDuration);
 });
 
 // Handle client join/leave events
@@ -724,4 +772,11 @@ socket.on('client-left', (data) => {
     updateClientCount(data.clientCount);
   }
   displayMessage('A device left the session', 'info', 3000);
+});
+
+// Listen for explicit client count updates from server
+socket.on('client-count-update', (data) => {
+  if (data.clientCount !== undefined) {
+    updateClientCount(data.clientCount);
+  }
 });
