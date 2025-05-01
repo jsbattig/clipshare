@@ -283,13 +283,19 @@ function setupEventListeners() {
       // If content is a file, show confirmation before sending
       if (clipboardContent && clipboardContent.type === 'file') {
         showFileTransferConfirmation(clipboardContent);
+      } else if (clipboardContent && clipboardContent.fileDetectedButInaccessible) {
+        // If we detected files but can't access them, show drop zone
+        showDropZone('File detected in clipboard - Please drag and drop to share');
       } else {
         // Handle other content types normally
         updateClipboardContent(clipboardContent, true);
         displayMessage('Clipboard refreshed', 'info', 2000);
       }
     } catch (err) {
-      displayMessage('Failed to read clipboard: ' + err.message, 'error');
+      // If any error occurs, try showing drop zone as fallback
+      showDropZone('Cannot access clipboard - Please drag and drop files');
+      console.error('Failed to read clipboard:', err);
+      displayMessage(err.message, 'error', 3000);
     }
   });
   
@@ -302,6 +308,65 @@ function setupEventListeners() {
       displayMessage('Remote clipboard updated with local content', 'success', 2000);
     } catch (err) {
       displayMessage('Failed to read clipboard: ' + err.message, 'error');
+    }
+  });
+  
+  // Set up drag and drop zone
+  const dropZone = document.getElementById('drop-zone');
+  const dropCloseBtn = document.querySelector('.close-drop-zone');
+  const multiFileIndicator = document.getElementById('multi-file-indicator');
+  const fileCountBadge = multiFileIndicator.querySelector('.file-count-badge');
+  const createZipBtn = multiFileIndicator.querySelector('.create-zip-btn');
+  let droppedFiles = []; // Store multiple files
+  
+  // Close drop zone button
+  dropCloseBtn.addEventListener('click', () => {
+    hideDropZone();
+  });
+  
+  // Hide drop zone on ESC key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !dropZone.classList.contains('hidden')) {
+      hideDropZone();
+    }
+  });
+  
+  // Prevent default to allow drop
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-active');
+  });
+  
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('drag-active');
+  });
+  
+  // Handle the drop event
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-active');
+    
+    // Get all dropped files
+    const files = Array.from(e.dataTransfer.files);
+    
+    if (files.length === 0) {
+      displayMessage('No files detected', 'error', 3000);
+      return;
+    }
+    
+    if (files.length === 1) {
+      // Single file - process normally
+      handleSingleFileUpload(files[0]);
+    } else {
+      // Multiple files - collect and show indicator
+      handleMultipleFiles(files);
+    }
+  });
+  
+  // Create ZIP button
+  createZipBtn.addEventListener('click', () => {
+    if (droppedFiles.length > 0) {
+      createAndShareZip(droppedFiles);
     }
   });
   
@@ -513,6 +578,80 @@ function detectOperatingSystem() {
   if (userAgent.indexOf('mac') !== -1) return 'mac';
   if (userAgent.indexOf('linux') !== -1) return 'linux';
   return 'unknown';
+}
+
+/**
+ * Determine file extension from path or MIME type
+ * @param {string} fileName - File name or path
+ * @param {string} mimeType - Optional MIME type
+ * @returns {string} The file extension
+ */
+function getFileExtension(fileName, mimeType) {
+  // First try to get extension from filename
+  if (fileName && fileName.includes('.')) {
+    return fileName.split('.').pop().toLowerCase();
+  }
+  
+  // If no filename or no extension, try to derive from MIME type
+  if (mimeType) {
+    const mimeExtMap = {
+      'application/pdf': 'pdf',
+      'application/msword': 'doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+      'application/vnd.ms-excel': 'xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+      'application/vnd.ms-powerpoint': 'ppt',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+      'text/plain': 'txt',
+      'text/html': 'html',
+      'text/css': 'css',
+      'text/javascript': 'js',
+      'application/json': 'json',
+      'application/xml': 'xml',
+      'application/zip': 'zip',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/svg+xml': 'svg',
+    };
+    
+    return mimeExtMap[mimeType] || mimeType.split('/')[1] || 'bin';
+  }
+  
+  return 'bin'; // Default binary extension
+}
+
+/**
+ * Get MIME type from file extension
+ * @param {string} fileName - File name with extension
+ * @returns {string} The MIME type
+ */
+function getMimeTypeFromExtension(fileName) {
+  const ext = getFileExtension(fileName);
+  const extMimeMap = {
+    'pdf': 'application/pdf',
+    'doc': 'application/msword',
+    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'xls': 'application/vnd.ms-excel',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'ppt': 'application/vnd.ms-powerpoint',
+    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'txt': 'text/plain',
+    'html': 'text/html',
+    'htm': 'text/html',
+    'css': 'text/css',
+    'js': 'text/javascript',
+    'json': 'application/json',
+    'xml': 'application/xml',
+    'zip': 'application/zip',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'gif': 'image/gif',
+    'svg': 'image/svg+xml',
+  };
+  
+  return extMimeMap[ext] || 'application/octet-stream';
 }
 
 /**
@@ -1294,3 +1433,230 @@ socket.on('file-chunk', (data) => {
   // TODO: Implement file chunking for large files
   console.log('Received file chunk:', data.chunkId, 'of', data.totalChunks);
 });
+
+/**
+ * Show drop zone for file drag-and-drop
+ * @param {string} message - Optional custom message to display
+ */
+function showDropZone(message) {
+  const dropZone = document.getElementById('drop-zone');
+  const primaryMsg = dropZone.querySelector('.primary');
+  
+  // Update message if provided
+  if (message && primaryMsg) {
+    primaryMsg.textContent = message;
+  }
+  
+  // Show drop zone
+  dropZone.classList.remove('hidden');
+  
+  // Add semi-transparent overlay effect to clipboard container
+  const clipboardContainer = document.querySelector('.clipboard-container');
+  clipboardContainer.style.position = 'relative';
+  
+  // Create overlay if it doesn't exist
+  if (!document.getElementById('dropzone-overlay')) {
+    const overlay = document.createElement('div');
+    overlay.id = 'dropzone-overlay';
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.right = '0';
+    overlay.style.bottom = '0';
+    overlay.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
+    overlay.style.zIndex = '50';
+    clipboardContainer.appendChild(overlay);
+  }
+}
+
+/**
+ * Hide drop zone
+ */
+function hideDropZone() {
+  const dropZone = document.getElementById('drop-zone');
+  const multiFileIndicator = document.getElementById('multi-file-indicator');
+  
+  // Hide drop zone and multi-file indicator
+  dropZone.classList.add('hidden');
+  multiFileIndicator.classList.add('hidden');
+  
+  // Remove overlay
+  const overlay = document.getElementById('dropzone-overlay');
+  if (overlay) {
+    overlay.parentNode.removeChild(overlay);
+  }
+  
+  // Show clipboard content again
+  if (currentContentState === CONTENT_STATES.TEXT) {
+    clipboardTextarea.classList.remove('hidden');
+  } else if (currentContentState === CONTENT_STATES.IMAGE) {
+    imageContainer.classList.remove('hidden');
+  } else if (currentContentState === CONTENT_STATES.FILE) {
+    fileContainer.classList.remove('hidden');
+  }
+}
+
+/**
+ * Handle single file upload
+ * @param {File} file - File object from drop event
+ */
+function handleSingleFileUpload(file) {
+  if (file.size > maxFileSize) {
+    displayMessage(`File too large (${formatFileSize(file.size)}). Maximum size is ${formatFileSize(maxFileSize)}.`, 'error', 5000);
+    return;
+  }
+  
+  const reader = new FileReader();
+  
+  reader.onload = function(e) {
+    // Create file data object
+    const fileData = {
+      type: 'file',
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type || getMimeTypeFromExtension(file.name),
+      fileContent: e.target.result,
+      timestamp: Date.now()
+    };
+    
+    // Hide drop zone
+    hideDropZone();
+    
+    // Show confirmation and proceed
+    showFileTransferConfirmation(fileData);
+  };
+  
+  reader.onerror = function() {
+    console.error('Error reading file:', file.name);
+    displayMessage(`Error reading file: ${file.name}`, 'error', 3000);
+  };
+  
+  // Display loading message
+  displayMessage(`Reading file: ${file.name}...`, 'info', 0);
+  
+  // Read file as data URL
+  reader.readAsDataURL(file);
+}
+
+/**
+ * Handle multiple files dropped at once
+ * @param {File[]} files - Array of File objects
+ */
+function handleMultipleFiles(files) {
+  // Store files for later use
+  window.droppedFiles = files;
+  
+  // Check total size
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+  if (totalSize > maxFileSize * 2) {
+    displayMessage(`Files too large (${formatFileSize(totalSize)}). Try dropping fewer files.`, 'error', 5000);
+    return;
+  }
+  
+  // Update multi-file indicator
+  const multiFileIndicator = document.getElementById('multi-file-indicator');
+  const fileCountBadge = multiFileIndicator.querySelector('.file-count-badge');
+  
+  multiFileIndicator.classList.remove('hidden');
+  fileCountBadge.textContent = `${files.length} files`;
+  
+  // Update drop zone message
+  const primaryMsg = document.querySelector('#drop-zone .primary');
+  if (primaryMsg) {
+    primaryMsg.textContent = `${files.length} files selected`;
+  }
+  
+  // Display message with file list
+  let fileListHtml = `<strong>${files.length} files selected:</strong><br>`;
+  files.slice(0, 5).forEach(file => {
+    fileListHtml += `- ${file.name} (${formatFileSize(file.size)})<br>`;
+  });
+  
+  if (files.length > 5) {
+    fileListHtml += `...and ${files.length - 5} more`;
+  }
+  
+  displayMessage(fileListHtml, 'info', 0);
+}
+
+/**
+ * Create and share a ZIP archive containing multiple files
+ * @param {File[]} files - Array of files to include in the ZIP
+ */
+async function createAndShareZip(files) {
+  if (!window.JSZip) {
+    displayMessage('ZIP library not loaded. Cannot create archive.', 'error', 3000);
+    return;
+  }
+  
+  try {
+    displayMessage('Creating ZIP archive...', 'info', 0);
+    
+    // Generate a filename with date
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
+    const zipFileName = `clipboard_files_${dateStr}_${timeStr}.zip`;
+    
+    // Create new ZIP file
+    const zip = new JSZip();
+    
+    // Add each file to the ZIP
+    let processedCount = 0;
+    let totalSize = 0;
+    
+    for (const file of files) {
+      await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          try {
+            // Add file to zip with original name
+            zip.file(file.name, e.target.result);
+            processedCount++;
+            totalSize += file.size;
+            
+            // Update progress message
+            displayMessage(`Adding files to ZIP: ${processedCount}/${files.length}`, 'info', 0);
+            
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(file);
+      });
+    }
+    
+    // Generate ZIP file
+    displayMessage('Compressing files...', 'info', 0);
+    const zipContent = await zip.generateAsync({
+      type: 'base64',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 }
+    });
+    
+    // Create file data object
+    const fileData = {
+      type: 'file',
+      fileName: zipFileName,
+      fileSize: Math.round((zipContent.length * 3) / 4), // Approximate size from base64
+      fileType: 'application/zip',
+      fileContent: `data:application/zip;base64,${zipContent}`,
+      isArchive: true,
+      fileCount: files.length,
+      timestamp: Date.now()
+    };
+    
+    // Hide UI elements
+    hideDropZone();
+    
+    // Confirm and share
+    displayMessage(`ZIP archive created with ${files.length} files (${formatFileSize(totalSize)})`, 'success', 3000);
+    showFileTransferConfirmation(fileData);
+    
+  } catch (err) {
+    console.error('Error creating ZIP:', err);
+    displayMessage('Failed to create ZIP file: ' + err.message, 'error', 5000);
+  }
+}
