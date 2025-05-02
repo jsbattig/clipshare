@@ -276,65 +276,18 @@ function handleFileBroadcast(fileData) {
   // Always log what we received without exposing sensitive content
   console.log('Received shared file from other client');
   
-  // CRITICAL CHANGE: Completely decrypt the file data upon receipt
-  try {
-    const sessionData = Session.getCurrentSession();
-    if (sessionData && sessionData.passphrase) {
-      console.log('Fully decrypting received file data...');
-      
-      // Create a completely decrypted copy of the file data
-      const decryptedFile = {...fileData};
-      
-      // Decrypt filename if needed
-      if (fileData.fileName && fileData.fileName.startsWith('U2FsdGVk')) {
-        try {
-          decryptedFile.fileName = decryptData(fileData.fileName, sessionData.passphrase);
-          console.log('Successfully decrypted filename:', decryptedFile.fileName);
-        } catch (err) {
-          console.error('Failed to decrypt filename:', err);
-          // Keep the encrypted version if decryption fails
-        }
-      }
-      
-      // Decrypt content if needed
-      if (fileData.content && typeof fileData.content === 'string' && fileData.content.startsWith('U2FsdGVk')) {
-        try {
-          decryptedFile.content = decryptData(fileData.content, sessionData.passphrase);
-          console.log('Successfully decrypted file content');
-        } catch (err) {
-          console.error('Failed to decrypt file content:', err);
-          // Keep the encrypted version if decryption fails
-        }
-      }
-      
-      // Keep other metadata
-      if (fileData.fileType && fileData.fileType.startsWith('U2FsdGVk')) {
-        try {
-          decryptedFile.fileType = decryptData(fileData.fileType, sessionData.passphrase);
-        } catch (err) {
-          // Keep encrypted version if decryption fails
-        }
-      }
-      
-      // Store the fully decrypted original data for direct access
-      decryptedFile._originalData = {...decryptedFile};
-      
-      // Store this fully decrypted version for all future operations
-      if (fileUpdateCallback) {
-        console.log('Storing fully decrypted file in memory for later use');
-        fileUpdateCallback(decryptedFile);
-      }
-      
-      // Show notification with the decrypted filename
-      UIManager.displayMessage(`File received: ${decryptedFile.fileName || 'Unknown file'}`, 'info', 5000);
-      return;
-    }
-  } catch (error) {
-    console.error('Failed to fully decrypt file data:', error);
+  // Use our unified processing function for consistent structure
+  // This ensures identical storage between sender and receiver sides
+  if (processReceivedFile(fileData)) {
+    // If processReceivedFile was successful, we're done
+    return;
   }
   
-  // Fallback behavior if decryption failed
-  // Check if filename is encrypted for display purposes only
+  // If we get here, our unified approach failed - fallback to original approach
+  // This is just a safety net - the processReceivedFile function should handle all cases
+  console.warn('Falling back to legacy file broadcast handling');
+  
+  // Try to get a readable filename for the notification
   let displayName = 'file';
   if (fileData.fileName) {
     if (fileData.fileName.startsWith('U2FsdGVk')) {
@@ -365,7 +318,7 @@ function handleFileBroadcast(fileData) {
     }
   }
   
-  // Store the partially decrypted file as last resort
+  // Store the file even if decryption failed
   if (fileUpdateCallback) {
     fileUpdateCallback(fileData);
   }
@@ -885,6 +838,62 @@ function handleFileMetadata(metadataPacket) {
 }
 
 /**
+ * Process a received file in a unified way (whether from chunks or direct broadcast)
+ * This ensures identical storage structure between sender and receiver
+ * @param {Object} fileData - The file data to process
+ */
+function processReceivedFile(fileData) {
+  console.log('Processing received file:', fileData.fileName || 'unnamed file');
+  
+  try {
+    // Get session data for decryption
+    const sessionData = Session.getCurrentSession();
+    if (!sessionData || !sessionData.passphrase) {
+      throw new Error('No session data available for decryption');
+    }
+    
+    // Decrypt the file content and metadata
+    console.log('Decrypting received file');
+    const decryptedFile = decryptClipboardContent(fileData, sessionData.passphrase);
+    
+    // Create identical structure to what file-operations.js creates for local files
+    // This ensures getBestFileData() will work identically for uploaded and received files
+    window.originalFileData = {
+      fileName: decryptedFile.fileName,
+      fileSize: decryptedFile.fileSize, 
+      fileType: decryptedFile.fileType,
+      content: decryptedFile.content,
+      timestamp: Date.now(),
+      isOriginal: true
+    };
+    
+    console.log('Successfully decrypted file and stored original data');
+    console.log('Original filename:', window.originalFileData.fileName);
+    console.log('Content starts with:', window.originalFileData.content.substring(0, 30) + '...');
+    
+    // Also attach the original data to the file object itself (like sender side does)
+    decryptedFile._originalData = {...window.originalFileData};
+    decryptedFile._displayFileName = decryptedFile.fileName;
+    
+    // Forward to content handlers
+    if (fileUpdateCallback) {
+      fileUpdateCallback(decryptedFile);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error processing received file:', error);
+    
+    // Still try to handle the file even if decryption failed
+    if (fileUpdateCallback) {
+      fileUpdateCallback(fileData);
+    }
+    
+    return false;
+  }
+}
+
+/**
  * Handle individual file chunk
  * @param {Object} chunkData - File chunk data
  */
@@ -937,8 +946,9 @@ function handleFileChunk(chunkData) {
     transfer.inProgress = false;
     transfer.completedTime = Date.now();
     
-    // Process the complete file data as if it came from a regular file-broadcast
-    handleFileBroadcast(completeFileData);
+    // Process the complete file using our unified processing function
+    // This ensures identical storage structure between sender and receiver
+    processReceivedFile(completeFileData);
     
     // Clean up after a delay (keep for debugging)
     setTimeout(() => {
