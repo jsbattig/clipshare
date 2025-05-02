@@ -184,10 +184,71 @@ console.log(`[${getLogTimestamp()}] Ping intervals set up successfully`);
 
 // Socket.io connection handler
 io.on('connection', (socket) => {
-  console.log(`New client connected: ${socket.id}`);
+  // Extract persistent client identity from handshake query if available
+  const queryParams = socket.handshake.query || {};
+  const persistentClientId = queryParams.clientIdentity || null;
+  const connectionMode = queryParams.mode || 'unknown';
   
-  // Store socket's client ID for heartbeat system
-  socket.clientIdentifier = socket.id;
+  // Store persistent identity on the socket object for later use
+  socket.clientIdentifier = socket.id; // Fallback to socket ID
+  socket.persistentIdentity = persistentClientId;
+  socket.connectionMode = connectionMode;
+  socket.connectionTimestamp = Date.now();
+  
+  console.log(`New client connected: ${socket.id} (${connectionMode} mode)`);
+  if (persistentClientId) {
+    console.log(`- With persistent identity: ${persistentClientId}`);
+  }
+  
+  // Handle client identity information (used for tracking across page changes)
+  socket.on('client-identity', (data) => {
+    const { persistentId, reconnecting } = data;
+    
+    console.log(`Received identity information from client ${socket.id}:`);
+    console.log(`- Persistent ID: ${persistentId}`);
+    console.log(`- Reconnecting: ${reconnecting ? 'yes' : 'no'}`);
+    
+    // Store updated information
+    socket.persistentClientId = persistentId;
+    socket.isReconnecting = reconnecting;
+    
+    // If this is a reconnection, check for any session this client might belong to
+    if (reconnecting && persistentId) {
+      // Get all active sessions
+      const activeSessions = sessionManager.getActiveSessions() || [];
+      
+      console.log(`Checking ${activeSessions.length} active sessions for reconnecting client`);
+      
+      // Look through each session for this client's previous socket ID
+      let foundPreviousSession = false;
+      
+      activeSessions.forEach(sessionId => {
+        const clientsList = sessionManager.getSessionClientsInfo(sessionId);
+        
+        // If this persistent client ID was already in a session, rejoin it
+        if (clientsList.some(c => c.browserInfo?.persistentId === persistentId)) {
+          console.log(`Found previous session ${sessionId} for reconnecting client ${persistentId}`);
+          
+          // Store session ID on socket
+          socket.sessionId = sessionId;
+          
+          // Join the room
+          socket.join(sessionId);
+          
+          // Update the client's socket ID in the session
+          // sessionManager.updateClientSocketId(sessionId, oldSocketId, socket.id);
+          
+          foundPreviousSession = true;
+        }
+      });
+      
+      if (foundPreviousSession) {
+        console.log(`Reconnected client ${socket.id} (${persistentId}) to previous session`);
+      } else {
+        console.log(`No previous session found for reconnecting client ${persistentId}`);
+      }
+    }
+  });
 
   // Set up heartbeat interval for this socket (legacy - can be removed once ping system is fully tested)
   let heartbeatInterval = null;

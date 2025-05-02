@@ -16,8 +16,37 @@ const AUTH_CONSTANTS = {
   VERIFICATION_TEXT: "ClipShare is freaking awesome",
   AUTH_TIMEOUT: 30000, // 30 seconds timeout for verification
   STORAGE_KEY: CONFIG.storage.sessionKey,
+  CLIENT_ID_KEY: "clipshare_client_identity",
   DEBUG_MODE: true // Enable debug logging
 };
+
+// Generate or retrieve a permanent client ID that persists across page loads
+function getOrCreateClientId() {
+  let clientId = localStorage.getItem(AUTH_CONSTANTS.CLIENT_ID_KEY);
+  
+  if (!clientId) {
+    // Generate a unique ID combining timestamp, random number and user agent hash
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 10);
+    const userAgentHash = CryptoJS.MD5(navigator.userAgent).toString().substring(0, 8);
+    
+    clientId = `client_${timestamp}_${random}_${userAgentHash}`;
+    localStorage.setItem(AUTH_CONSTANTS.CLIENT_ID_KEY, clientId);
+    
+    if (AUTH_CONSTANTS.DEBUG_MODE) {
+      console.log(`Generated new persistent client ID: ${clientId}`);
+    }
+  } else if (AUTH_CONSTANTS.DEBUG_MODE) {
+    console.log(`Using existing persistent client ID: ${clientId}`);
+  }
+  
+  return clientId;
+}
+
+// Get the permanent client ID
+export function getClientId() {
+  return getOrCreateClientId();
+}
 
 // Module state
 let socket = null;
@@ -462,11 +491,15 @@ function getBrowserInfo() {
     osName = 'iOS';
   }
   
+  // Get persistent client ID to track client across page navigations
+  const persistentId = getOrCreateClientId();
+  
   return {
     name: browserName,
     os: osName,
     userAgent,
     windowId: Math.random().toString(36).substring(2, 10), // Generate a unique window ID
+    persistentId: persistentId, // Include persistent ID for tracking across page navigations
     timestamp: Date.now()
   };
 }
