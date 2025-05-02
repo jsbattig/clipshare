@@ -10,6 +10,16 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Fixed Encrypted Filename Display (May 2, 2025):**
+- Fixed UI issue where encrypted filenames were displayed to users instead of readable names
+- Added filename decryption in multiple components to ensure proper display:
+  - Enhanced content-handlers.js with specific filename decryption functionality
+  - Modified socket-events.js to decrypt filenames when showing file notifications
+  - Updated UI-manager.js to detect and handle encrypted filenames gracefully
+- Added multiple decryption fallbacks to ensure filenames always appear readable
+- Improved logging to better diagnose encryption/decryption issues
+- Applied fix for both source and target browsers in file sharing
+
 **Fixed Encryption Issues (May 2, 2025):**
 - Fixed issues with content encryption where encrypted content was displaying instead of decrypted content
 - Removed dependency on `_encrypted` flag - now all content is always encrypted in transit
