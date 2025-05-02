@@ -10,6 +10,28 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**File Banner Filename Fix (May 2, 2025):**
+- Fixed issue where encrypted filenames appeared in the file banner UI:
+  - **Root Cause Analysis**: While the notification popup showed decrypted filenames, the main file banner UI still displayed encrypted filename
+  - **Implementation**: 
+    1. Added DOM mutation observer to monitor the filename element for changes
+    2. Created post-render decryption checks with multi-approach fallbacks
+    3. Exposed Session module to window object for UI-level access
+    4. Made decryption functions globally available for DOM-level access
+    5. Added scheduled post-render verification after UI updates
+  - **Technical Details**:
+    - Four-level fallback mechanism for filename decryption:
+      1. First tries window.originalFileData
+      2. Then tries sharedFile._originalData
+      3. Then attempts direct decryption with window.decryptData
+      4. Finally tries decryptClipboardContent as last resort
+    - Observer pattern detects any encrypted text immediately after insertion
+    - Global access to Session module and decryption functions
+  - **User Experience Improvements**:
+    - Consistent filename display throughout the entire application
+    - Encrypted filenames no longer visible to users in any UI component
+  - **Key Insight**: DOM elements can be modified through various paths, requiring a comprehensive multi-layer approach to catch all rendering scenarios
+
 **Encrypted Filename Display Fix (May 2, 2025):**
 - Fixed issue where filenames appeared encrypted on the receiver side:
   - **Root Cause Analysis**: The file content was being properly decrypted for downloads, but the UI was still showing the encrypted filename
