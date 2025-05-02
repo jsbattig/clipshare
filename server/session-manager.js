@@ -6,6 +6,14 @@
 // Simple in-memory session storage
 const sessions = {};
 
+// Model for client info within sessions
+// {
+//   id: socket.id,
+//   ip: socket.handshake.address,
+//   browserInfo: { name, os, windowId, fingerprint },
+//   connectedAt: Date.toISOString()
+// }
+
 /**
  * Create a new session or join an existing one
  * @param {string} sessionId - The session identifier
@@ -164,6 +172,32 @@ function addClientToSession(sessionId, clientId) {
 }
 
 /**
+ * Add a client to a session with detailed information
+ * @param {string} sessionId - The session identifier
+ * @param {string} clientId - The client socket ID
+ * @param {Object} clientInfo - The client information including IP, browser details, etc.
+ */
+function addClientWithInfo(sessionId, clientId, clientInfo) {
+  if (!sessions[sessionId]) return;
+  
+  // Add client to basic clients list if not already there
+  if (!sessions[sessionId].clients.includes(clientId)) {
+    sessions[sessionId].clients.push(clientId);
+  }
+  
+  // Initialize clientsInfo if it doesn't exist
+  if (!sessions[sessionId].clientsInfo) {
+    sessions[sessionId].clientsInfo = {};
+  }
+  
+  // Store the client info
+  sessions[sessionId].clientsInfo[clientId] = {
+    ...clientInfo,
+    lastActivity: Date.now()
+  };
+}
+
+/**
  * Remove a client from a session
  * @param {string} sessionId - The session identifier
  * @param {string} clientId - The client socket ID
@@ -198,12 +232,35 @@ function getClientCount(sessionId) {
   return sessions[sessionId]?.clients.length || 0;
 }
 
+/**
+ * Get detailed information about all clients in a session
+ * @param {string} sessionId - The session identifier
+ * @returns {Array} Array of client info objects
+ */
+function getSessionClientsInfo(sessionId) {
+  if (!sessions[sessionId] || !sessions[sessionId].clientsInfo) {
+    return [];
+  }
+  
+  // Return array of client info objects
+  return Object.entries(sessions[sessionId].clientsInfo).map(([clientId, info]) => ({
+    id: clientId,
+    ip: info.ip || 'Unknown',
+    browserName: info.browserInfo?.name || 'Unknown',
+    osName: info.browserInfo?.os || 'Unknown',
+    connectedAt: info.connectedAt || new Date().toISOString(),
+    lastActivity: info.lastActivity || Date.now()
+  }));
+}
+
 module.exports = {
   joinSession,
   getClipboardContent,
   updateClipboardContent,
   addClientToSession,
+  addClientWithInfo,
   removeClientFromSession,
   getSessionClients,
+  getSessionClientsInfo,
   getClientCount
 };

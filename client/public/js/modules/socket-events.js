@@ -16,6 +16,8 @@ import { getBrowserInfo, hashContent } from './utils.js';
 let socket = null;
 let clipboardUpdateCallback = null;
 let fileUpdateCallback = null;
+let clientListCallback = null;
+let connectedClients = [];
 
 /**
  * Initialize socket event handlers
@@ -28,6 +30,7 @@ export function init(socketInstance, callbacks = {}) {
   // Store callbacks
   if (callbacks.onClipboardUpdate) clipboardUpdateCallback = callbacks.onClipboardUpdate;
   if (callbacks.onFileUpdate) fileUpdateCallback = callbacks.onFileUpdate;
+  if (callbacks.onClientListUpdate) clientListCallback = callbacks.onClientListUpdate;
   
   setupSocketListeners();
 }
@@ -47,6 +50,7 @@ function setupSocketListeners() {
   socket.on('client-count-update', handleClientCountUpdate);
   socket.on('client-joined', handleClientJoined);
   socket.on('client-left', handleClientLeft);
+  socket.on('client-list-update', handleClientListUpdate);
   
   // Content events
   socket.on('clipboard-broadcast', handleClipboardBroadcast);
@@ -90,6 +94,12 @@ function handleSuccessfulConnection(response) {
   // Update client count
   if (response.clientCount !== undefined) {
     Session.updateClientCount(response.clientCount);
+  }
+  
+  // Handle initial client list if available
+  if (response.clients && clientListCallback) {
+    connectedClients = response.clients;
+    clientListCallback(connectedClients);
   }
 }
 
@@ -139,7 +149,16 @@ function handleClientJoined(data) {
     Session.updateClientCount(data.clientCount);
   }
   
-  UIManager.displayMessage('Another device joined the session', 'info', 3000);
+  // If client info is provided, show a more detailed message
+  if (data.clientInfo) {
+    const browser = data.clientInfo.browserInfo?.name || 'Unknown browser';
+    const os = data.clientInfo.browserInfo?.os || 'Unknown OS';
+    const ip = data.clientInfo.ip || 'Unknown IP';
+    
+    UIManager.displayMessage(`New device joined: ${browser} on ${os} (${ip})`, 'info', 3000);
+  } else {
+    UIManager.displayMessage('Another device joined the session', 'info', 3000);
+  }
 }
 
 /**
@@ -298,9 +317,33 @@ function formatFileSize(bytes) {
 }
 
 /**
+ * Handle client list update event
+ * @param {Object} data - Event data containing clients array
+ */
+function handleClientListUpdate(data) {
+  if (data.clients && Array.isArray(data.clients)) {
+    // Update our local list of clients
+    connectedClients = data.clients;
+    
+    // Update UI via callback
+    if (clientListCallback) {
+      clientListCallback(connectedClients);
+    }
+  }
+}
+
+/**
  * Get socket instance
  * @returns {Object|null} Socket.io instance
  */
 export function getSocket() {
   return socket;
+}
+
+/**
+ * Get connected clients list
+ * @returns {Array} List of connected clients
+ */
+export function getConnectedClients() {
+  return connectedClients;
 }

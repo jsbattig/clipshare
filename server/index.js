@@ -46,7 +46,7 @@ io.on('connection', (socket) => {
   
   // Handle session join/create
   socket.on('join-session', (data, callback) => {
-    const { sessionId, passphrase } = data;
+    const { sessionId, passphrase, browserInfo } = data;
     
     if (!sessionId || !passphrase) {
       return callback({ 
@@ -61,8 +61,16 @@ io.on('connection', (socket) => {
       // Store session info on socket object for easy access
       socket.sessionId = sessionId;
       
-      // Add client to session
-      sessionManager.addClientToSession(sessionId, socket.id);
+      // Capture client information including IP address
+      const clientInfo = {
+        id: socket.id,
+        ip: socket.handshake.address,
+        browserInfo: browserInfo || { name: 'Unknown', os: 'Unknown' },
+        connectedAt: new Date().toISOString()
+      };
+      
+      // Add client to session with detailed info
+      sessionManager.addClientWithInfo(sessionId, socket.id, clientInfo);
       
       // Join socket.io room for this session
       socket.join(sessionId);
@@ -73,11 +81,15 @@ io.on('connection', (socket) => {
       // Get the current client count after this client joined
       const clientCount = sessionManager.getClientCount(sessionId);
       
-      // Send success response with current clipboard and client count
+      // Get detailed client list
+      const clientsList = sessionManager.getSessionClientsInfo(sessionId);
+      
+      // Send success response with current clipboard, client count, and clients list
       callback({ 
         ...result, 
         clipboard: currentContent,
-        clientCount: clientCount
+        clientCount: clientCount,
+        clients: clientsList
       });
       
       // Broadcast updated client count to ALL clients in the session (including sender)
@@ -85,10 +97,16 @@ io.on('connection', (socket) => {
         clientCount: clientCount
       });
       
+      // Broadcast detailed client list to ALL clients in the session
+      io.to(sessionId).emit('client-list-update', {
+        clients: clientsList
+      });
+      
       // Notify other clients that a new client joined
       socket.to(sessionId).emit('client-joined', { 
         clientId: socket.id,
-        clientCount: clientCount
+        clientCount: clientCount,
+        clientInfo: clientInfo
       });
       
       // Set up heartbeat interval to periodically broadcast client count
@@ -218,6 +236,14 @@ io.on('connection', (socket) => {
         clientId: socket.id,
         clientCount: remainingClients
       });
+      
+      // If there are clients left, broadcast updated client list
+      if (remainingClients > 0) {
+        const updatedClientsList = sessionManager.getSessionClientsInfo(sessionId);
+        io.to(sessionId).emit('client-list-update', {
+          clients: updatedClientsList
+        });
+      }
     }
   });
 });

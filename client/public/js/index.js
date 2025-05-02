@@ -71,6 +71,9 @@ function initializeApp() {
       onFileUpdate: (fileData) => {
         ContentHandlers.setSharedFile(fileData);
         ContentHandlers.handleFileContent(fileData);
+      },
+      onClientListUpdate: (clients) => {
+        UIManager.updateConnectedDevices(clients);
       }
     });
     

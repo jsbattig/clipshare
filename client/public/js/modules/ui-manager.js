@@ -256,3 +256,131 @@ export function showDiffBanner(show) {
     diffBanner.classList.add('hidden');
   }
 }
+
+/**
+ * Update the connected devices panel with current client information
+ * @param {Array} clients - Array of client objects with connection info
+ */
+export function updateConnectedDevices(clients) {
+  const devicesContainer = getElement('connected-devices');
+  const toggleButton = getElement('toggle-devices-btn');
+  
+  if (!devicesContainer || !toggleButton) return;
+  
+  // Clear existing content
+  devicesContainer.innerHTML = '';
+  
+  if (!clients || clients.length === 0) {
+    devicesContainer.innerHTML = '<div class="no-devices-message">No other devices connected</div>';
+    return;
+  }
+  
+  // Get the current client socketId for comparison
+  const socket = io?.sockets?.socket || { id: 'unknown' };
+  const currentClientId = socket.id;
+  
+  // Create a card for each connected client
+  clients.forEach(client => {
+    const isCurrentClient = client.id === currentClientId;
+    
+    // Format connected time
+    const connectedTime = formatTimeAgo(client.connectedAt);
+    
+    // Create device card
+    const deviceCard = document.createElement('div');
+    deviceCard.className = 'device-card';
+    
+    // Create device icon
+    const deviceIcon = document.createElement('div');
+    deviceIcon.className = 'device-icon';
+    
+    // Choose icon based on browser and OS
+    let iconContent = '💻';
+    if (client.browserName === 'Chrome') iconContent = '🌐';
+    if (client.browserName === 'Firefox') iconContent = '🦊';
+    if (client.browserName === 'Safari') iconContent = '🧭';
+    if (client.browserName === 'Edge') iconContent = '🔷';
+    
+    deviceIcon.textContent = iconContent;
+    
+    // Create device info
+    const deviceInfo = document.createElement('div');
+    deviceInfo.className = 'device-info';
+    
+    const deviceName = document.createElement('div');
+    deviceName.className = 'device-name';
+    deviceName.textContent = `${client.browserName} on ${client.osName}`;
+    
+    const deviceIp = document.createElement('div');
+    deviceIp.className = 'device-ip';
+    deviceIp.textContent = client.ip || 'IP unknown';
+    
+    const deviceTime = document.createElement('div');
+    deviceTime.className = 'device-time';
+    deviceTime.textContent = `Connected ${connectedTime}`;
+    
+    deviceInfo.appendChild(deviceName);
+    deviceInfo.appendChild(deviceIp);
+    deviceInfo.appendChild(deviceTime);
+    
+    // Create device status if this is the current client
+    if (isCurrentClient) {
+      const deviceStatus = document.createElement('div');
+      deviceStatus.className = 'device-status current';
+      deviceStatus.textContent = 'You';
+      deviceCard.appendChild(deviceStatus);
+    }
+    
+    // Assemble the card
+    deviceCard.appendChild(deviceIcon);
+    deviceCard.appendChild(deviceInfo);
+    
+    // Add to container
+    devicesContainer.appendChild(deviceCard);
+  });
+  
+  // Update the toggle button text
+  toggleButton.textContent = `Connected Devices (${clients.length})`;
+}
+
+/**
+ * Toggle the connected devices panel visibility
+ */
+export function toggleDevicesPanel() {
+  const devicesContainer = getElement('connected-devices');
+  const toggleButton = getElement('toggle-devices-btn');
+  
+  if (!devicesContainer || !toggleButton) return;
+  
+  const isHidden = devicesContainer.classList.contains('hidden');
+  
+  if (isHidden) {
+    devicesContainer.classList.remove('hidden');
+    toggleButton.classList.add('active');
+  } else {
+    devicesContainer.classList.add('hidden');
+    toggleButton.classList.remove('active');
+  }
+}
+
+/**
+ * Format a timestamp into a relative time ("2 minutes ago")
+ * @param {string} timestamp - ISO timestamp string
+ * @returns {string} Formatted relative time
+ */
+function formatTimeAgo(timestamp) {
+  if (!timestamp) return 'recently';
+  
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffSec = Math.floor(diffMs / 1000);
+  
+  if (isNaN(diffSec)) return 'recently';
+  
+  if (diffSec < 60) return `${diffSec} seconds ago`;
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} minutes ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} hours ago`;
+  
+  return `${Math.floor(diffSec / 86400)} days ago`;
+}

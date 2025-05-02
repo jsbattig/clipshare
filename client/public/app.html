@@ -46,6 +46,13 @@
                 <h2>Session: <span id="session-name">Loading...</span></h2>
                 <div id="connection-status" class="connected">Connected</div>
                 <div id="clients-info">Clients connected: <span id="client-count">1</span></div>
+                <div class="connected-devices-panel">
+                    <button id="toggle-devices-btn" class="toggle-devices">Show Connected Devices</button>
+                    <div id="connected-devices" class="devices-list hidden">
+                        <!-- Device cards will be dynamically created here -->
+                        <div class="no-devices-message">Fetching connected devices...</div>
+                    </div>
+                </div>
             </div>
             
             <div id="app-message" class="message hidden"></div>

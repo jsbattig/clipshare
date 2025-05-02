@@ -64,6 +64,14 @@ function setupSessionControls() {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', handleLogoutButtonClick);
   }
+  
+  // Toggle connected devices button
+  const toggleDevicesBtn = getElement('toggle-devices-btn');
+  if (toggleDevicesBtn) {
+    toggleDevicesBtn.addEventListener('click', () => {
+      UIManager.toggleDevicesPanel();
+    });
+  }
 }
 
 /**
