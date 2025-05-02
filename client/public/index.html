@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ClipShare - Synchronized Clipboard</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles-auth.css">
     <script src="/socket.io/socket.io.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="auth.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="js/index-auth.js" type="module"></script>
 </head>
 <body>
     <div class="container">
@@ -22,15 +24,28 @@
             
             <div id="auth-message" class="message hidden"></div>
             
+            <div class="auth-status hidden" id="auth-status">
+                <div class="auth-status-icon loading"></div>
+                <div class="auth-status-text">Checking session...</div>
+            </div>
+            
             <form id="auth-form">
                 <div class="form-group">
                     <label for="session-id">Session Name:</label>
-                    <input type="text" id="session-id" name="session-id" required placeholder="e.g., my-shared-clipboard">
+                    <input type="text" id="session-id" name="session-id" required 
+                           placeholder="e.g., my-shared-clipboard" autocomplete="off">
                 </div>
                 
                 <div class="form-group">
                     <label for="passphrase">Passphrase:</label>
-                    <input type="password" id="passphrase" name="passphrase" required placeholder="Enter a secure passphrase">
+                    <input type="password" id="passphrase" name="passphrase" required 
+                           placeholder="Enter a secure passphrase">
+                    <button type="button" class="password-toggle" id="password-toggle" 
+                            aria-label="Toggle password visibility">👁️</button>
+                </div>
+                
+                <div class="form-note">
+                    <p><small>Your passphrase is never sent to the server and is used for client-side encryption.</small></p>
                 </div>
                 
                 <button type="submit" id="auth-button">Join Session</button>

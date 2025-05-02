@@ -191,18 +191,244 @@ io.on('connection', (socket) => {
   // Set up heartbeat interval for this socket (legacy - can be removed once ping system is fully tested)
   let heartbeatInterval = null;
   
+  // Helper function to handle verification completion callback
+  function handleVerificationComplete(verificationResult) {
+    const { approved, sessionId, clientId } = verificationResult;
+    
+    // If verification approved, add to session
+    if (approved) {
+      console.log(`Verification approved for client ${clientId} in session ${sessionId}`);
+      
+      // Get client info if available
+      const clientInfo = {
+        id: clientId,
+        ip: socket.handshake.address,
+        browserInfo: socket.browserInfo || { name: 'Unknown', os: 'Unknown' },
+        connectedAt: new Date().toISOString()
+      };
+      
+      // Add to session with authorized flag
+      sessionManager.addClientWithInfo(sessionId, clientId, clientInfo, true);
+      
+      // Get current clipboard content and client info
+      const currentContent = sessionManager.getClipboardContent(sessionId);
+      const clientCount = sessionManager.getClientCount(sessionId);
+      const clientsList = sessionManager.getSessionClientsInfo(sessionId);
+      
+      // Send success to client
+      socket.emit('verification-result', {
+        approved: true,
+        sessionId,
+        clipboard: currentContent,
+        clientCount,
+        clients: clientsList
+      });
+      
+      // Broadcast client joined to others
+      socket.to(sessionId).emit('client-joined', {
+        clientId: socket.id,
+        clientCount,
+        clientInfo
+      });
+    } else {
+      console.log(`Verification denied for client ${clientId} in session ${sessionId}`);
+      
+      // Send failure to client
+      socket.emit('verification-result', {
+        approved: false,
+        sessionId,
+        message: 'Verification failed. Access denied.'
+      });
+      
+      // Remove from room
+      socket.leave(sessionId);
+    }
+  }
+  
+  // Function to broadcast verification request to authorized clients
+  function broadcastVerificationRequest(sessionId, clientId, encryptedVerification) {
+    // Get all authorized clients
+    const authorizedClients = sessionManager.getAuthorizedClients(sessionId);
+    
+    if (authorizedClients.length === 0) {
+      console.log(`No authorized clients in session ${sessionId} to verify client ${clientId}`);
+      return;
+    }
+    
+    console.log(`Broadcasting verification request to ${authorizedClients.length} authorized clients`);
+    
+    // Send verification request to all authorized clients
+    authorizedClients.forEach(authorizedClientId => {
+      io.to(authorizedClientId).emit('verify-join-request', {
+        sessionId,
+        clientId,
+        encryptedVerification
+      });
+    });
+  }
+  
+  // Handle session existence check
+  socket.on('check-session-exists', (data, callback) => {
+    const { sessionId } = data;
+    
+    if (!sessionId) {
+      return callback({ 
+        exists: false, 
+        hasActiveClients: false,
+        message: 'Session ID is required' 
+      });
+    }
+    
+    // Check if session exists and has active clients
+    const result = sessionManager.checkSessionExists(sessionId);
+    callback(result);
+  });
+  
+  // Handle new session creation
+  socket.on('create-new-session', (data, callback) => {
+    const { sessionId } = data;
+    
+    if (!sessionId) {
+      return callback({ 
+        success: false, 
+        message: 'Session ID is required' 
+      });
+    }
+    
+    // Create new session
+    const result = sessionManager.createNewSession(sessionId);
+    
+    if (result.success) {
+      // Store session info on socket object for easy access
+      socket.sessionId = sessionId;
+      
+      // Join socket.io room for this session
+      socket.join(sessionId);
+      
+      // Add client to session and mark as authorized
+      sessionManager.addClientToSession(sessionId, socket.id, true);
+      
+      // Get current clipboard content (empty for new sessions)
+      const currentContent = sessionManager.getClipboardContent(sessionId);
+      
+      // Include additional information in response
+      callback({
+        ...result,
+        clipboard: currentContent,
+        clientCount: 1, // Just this client
+        clients: [{ id: socket.id, active: true }]
+      });
+      
+      console.log(`New session created: ${sessionId} by client ${socket.id}`);
+    } else {
+      // Session creation failed
+      callback(result);
+    }
+  });
+  
+  // Handle join request
+  socket.on('request-session-join', (data, callback) => {
+    const { sessionId, encryptedVerification } = data;
+    
+    if (!sessionId || !encryptedVerification) {
+      return callback({ 
+        accepted: false, 
+        message: 'Session ID and verification data are required' 
+      });
+    }
+    
+    // Store session ID in socket for future reference
+    socket.sessionId = sessionId;
+    
+    // Store browser info for later use
+    socket.browserInfo = data.browserInfo;
+    
+    // Register join request for verification
+    const result = sessionManager.registerJoinRequest(
+      sessionId, 
+      socket.id, 
+      encryptedVerification,
+      (verificationResult) => {
+        // This callback will be called when verification is complete
+        handleVerificationComplete(verificationResult);
+      }
+    );
+    
+    // If request accepted for verification, join the room to receive broadcasts
+    if (result.accepted) {
+      // Join socket.io room for this session
+      socket.join(sessionId);
+      
+      // If auto-authorized (first client), no need for verification
+      if (result.autoAuthorized) {
+        // Add client info with authorized flag
+        const clientInfo = {
+          id: socket.id,
+          ip: socket.handshake.address,
+          browserInfo: data.browserInfo || { name: 'Unknown', os: 'Unknown' },
+          connectedAt: new Date().toISOString()
+        };
+        
+        sessionManager.addClientWithInfo(sessionId, socket.id, clientInfo, true);
+        
+        // Get current clipboard content
+        const currentContent = sessionManager.getClipboardContent(sessionId);
+        
+        // Send verification result to client
+        socket.emit('verification-result', {
+          approved: true,
+          sessionId,
+          clipboard: currentContent,
+          clientCount: 1,
+          clients: [{ id: socket.id, active: true }]
+        });
+      } else {
+        // Broadcast verification request to all authorized clients
+        broadcastVerificationRequest(sessionId, socket.id, encryptedVerification);
+      }
+    }
+    
+    callback(result);
+  });
+  
+  // Handle verification result from an authorized client
+  socket.on('submit-verification-result', (data) => {
+    const { sessionId, clientId, approved } = data;
+    
+    if (!sessionId || !clientId || approved === undefined) {
+      console.warn('Invalid verification result data:', data);
+      return;
+    }
+    
+    // Submit verification result from this client
+    const result = sessionManager.submitVerificationResult(
+      sessionId,
+      socket.id, // verifier client ID
+      clientId,  // target client ID
+      approved
+    );
+    
+    if (result.success && result.banned) {
+      // Session was banned due to verification failure
+      // Notify all clients in the session
+      io.to(sessionId).emit('session-banned', {
+        sessionId,
+        reason: 'Verification failure - possible security breach'
+      });
+    }
+  });
+  
   // Handle client ping response
   socket.on('client-ping-response', (data) => {
-    const { sessionId, sessionToken } = data;
+    const { sessionId } = data;
     
-    // Security verification:
-    // Verify the session ID matches what we expect and authenticate with session manager
+    // Verify the session ID matches what we expect
     if (sessionId && sessionId === socket.sessionId) {
-      // Use session manager's joinSession to verify the token is correct
-      const result = sessionManager.joinSession(sessionId, sessionToken);
+      // Check if client is authorized in this session
+      const isAuthorized = sessionManager.isClientAuthorized(sessionId, socket.id);
       
-      if (result.success) {
-        // Token is valid - record this client as responsive
+      if (isAuthorized) {
+        // Client is authorized - record as responsive
         console.log(`Received valid ping response from client ${socket.id} in session ${sessionId}`);
         
         // This will return true if the client wasn't active before
@@ -226,12 +452,12 @@ io.on('connection', (socket) => {
           console.log(`Real-time update: Client ${socket.id} is now active (${activeClientCount} active clients)`);
         }
       } else {
-        // Invalid token - potential security issue
-        console.warn(`Security: Invalid session token in ping response from ${socket.id}`);
+        // Not authorized - potential security issue
+        console.warn(`Security: Unauthorized client ${socket.id} in ping response`);
         
-        // Notify client they need to reconnect
+        // Notify client they need to reconnect/reauthorize
         socket.emit('session-inactive', { 
-          message: 'Your session authentication has failed. Please reconnect to continue.' 
+          message: 'Your session authentication has expired. Please reconnect to continue.' 
         });
       }
     } else if (socket.sessionId) {
@@ -340,6 +566,17 @@ io.on('connection', (socket) => {
       return; // Client not authenticated
     }
     
+    // Check if client is authorized in this session
+    const isAuthorized = sessionManager.isClientAuthorized(sessionId, socket.id);
+    if (!isAuthorized) {
+      console.warn(`Unauthorized clipboard update from client ${socket.id}`);
+      // Notify client they need to reconnect/reauthorize
+      socket.emit('session-inactive', { 
+        message: 'You are not authorized to update this session. Please reconnect.' 
+      });
+      return;
+    }
+    
     // Create properly formatted clipboard data with timestamp
     let clipboardData;
     if (typeof content === 'string' && !type) {
@@ -398,6 +635,17 @@ io.on('connection', (socket) => {
     
     if (!sessionId) {
       return; // Client not authenticated
+    }
+    
+    // Check if client is authorized in this session
+    const isAuthorized = sessionManager.isClientAuthorized(sessionId, socket.id);
+    if (!isAuthorized) {
+      console.warn(`Unauthorized file update from client ${socket.id}`);
+      // Notify client they need to reconnect/reauthorize
+      socket.emit('session-inactive', { 
+        message: 'You are not authorized to share files in this session. Please reconnect.' 
+      });
+      return;
     }
     
     // Add origin client information if not present

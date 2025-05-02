@@ -1,10 +1,29 @@
 /**
  * Session Manager for clipboard sync application
  * Handles session creation, joining, and authentication
+ * 
+ * Refactored for client-side encryption and enhanced security:
+ * - Passphrases never stored on server
+ * - Client verification via encrypted challenge
+ * - Session banning for security violations
  */
 
 // Simple in-memory session storage
 const sessions = {};
+
+// Banned sessions with timestamps
+const bannedSessions = new Map();
+
+// Constants
+const SESSION_CONSTANTS = {
+  BAN_DURATION: 10 * 60 * 1000, // 10 minutes in milliseconds
+  VERIFICATION_TIMEOUT: 30 * 1000, // 30 seconds in milliseconds
+  MAX_PENDING_VERIFICATIONS: 10 // Maximum pending verification requests
+};
+
+// Storage for pending verification requests
+// { sessionId: { clientId: { timestamp, callbacks, timeoutId } } }
+const pendingVerifications = {};
 
 // Constants for ping mechanism
 const PING_TIMEOUT = 15000; // 15 seconds - time after which a client is considered inactive
@@ -18,51 +37,347 @@ const PING_TIMEOUT = 15000; // 15 seconds - time after which a client is conside
 // }
 
 /**
- * Create a new session or join an existing one
+ * Check if a session exists and has active clients
  * @param {string} sessionId - The session identifier
- * @param {string} passphrase - The passphrase for authentication
- * @returns {object} Session result with success status and message
+ * @returns {object} Information about session existence and status
  */
-function joinSession(sessionId, passphrase) {
+function checkSessionExists(sessionId) {
   // Normalize session ID to prevent case sensitivity issues
   const normalizedSessionId = sessionId.trim();
   
+  // Check if session is banned
+  if (isBannedSession(normalizedSessionId)) {
+    return {
+      exists: false,
+      hasActiveClients: false,
+      banned: true
+    };
+  }
+  
   // Check if session exists
   if (sessions[normalizedSessionId]) {
-    // Verify passphrase for existing session
-    if (sessions[normalizedSessionId].passphrase === passphrase) {
-      return { 
-        success: true, 
-        message: 'Session joined successfully', 
-        isNewSession: false 
-      };
-    } else {
-      return { 
-        success: false, 
-        message: 'Incorrect passphrase' 
-      };
-    }
-  } else {
-    // Create new session
-    sessions[normalizedSessionId] = {
-      passphrase,
-      clipboard: {
-        type: 'text',
-        content: '',
-        timestamp: Date.now(),
-        originClient: null
-      },
-      createdAt: new Date(),
-      clients: [],
-      lastHeartbeat: Date.now()
+    const activeClientCount = sessions[normalizedSessionId].clients?.length || 0;
+    return {
+      exists: true,
+      hasActiveClients: activeClientCount > 0
     };
+  }
+  
+  return {
+    exists: false,
+    hasActiveClients: false
+  };
+}
+
+/**
+ * Create a new session
+ * @param {string} sessionId - The session identifier
+ * @returns {object} Creation result with success status and message
+ */
+function createNewSession(sessionId) {
+  // Normalize session ID to prevent case sensitivity issues
+  const normalizedSessionId = sessionId.trim();
+  
+  // Check if session is banned
+  if (isBannedSession(normalizedSessionId)) {
+    return {
+      success: false,
+      message: 'This session name is temporarily banned for security reasons'
+    };
+  }
+  
+  // Check if session already exists
+  if (sessions[normalizedSessionId]) {
+    return {
+      success: false,
+      message: 'Session already exists'
+    };
+  }
+  
+  // Create new session (no passphrase stored)
+  sessions[normalizedSessionId] = {
+    clipboard: {
+      type: 'text',
+      content: '',
+      timestamp: Date.now(),
+      originClient: null
+    },
+    createdAt: new Date(),
+    clients: [],
+    authorizedClients: new Set(), // Track authorized clients
+    lastHeartbeat: Date.now()
+  };
+  
+  return { 
+    success: true, 
+    message: 'New session created'
+  };
+}
+
+/**
+ * Register a client's join request for verification
+ * @param {string} sessionId - The session identifier
+ * @param {string} clientId - The client socket ID
+ * @param {string} encryptedVerification - Encrypted verification data
+ * @param {Function} callback - Callback function for verification request result
+ * @returns {object} Request result with status and message
+ */
+function registerJoinRequest(sessionId, clientId, encryptedVerification, callback) {
+  // Normalize session ID
+  const normalizedSessionId = sessionId.trim();
+  
+  // Check if session is banned
+  if (isBannedSession(normalizedSessionId)) {
+    return {
+      accepted: false,
+      message: 'This session name is temporarily banned for security reasons'
+    };
+  }
+  
+  // Check if session exists
+  if (!sessions[normalizedSessionId]) {
+    return {
+      accepted: false,
+      message: 'Session does not exist'
+    };
+  }
+  
+  // Get authorized clients to verify
+  const authorizedClientsCount = sessions[normalizedSessionId].authorizedClients?.size || 0;
+  
+  // If there are no authorized clients, auto-accept
+  if (authorizedClientsCount === 0) {
+    // Auto-authorize this client
+    if (!sessions[normalizedSessionId].authorizedClients) {
+      sessions[normalizedSessionId].authorizedClients = new Set();
+    }
+    sessions[normalizedSessionId].authorizedClients.add(clientId);
+    
+    return {
+      accepted: true,
+      message: 'Auto-authorized as first client',
+      autoAuthorized: true
+    };
+  }
+  
+  // Initialize pending verifications for this session if needed
+  if (!pendingVerifications[normalizedSessionId]) {
+    pendingVerifications[normalizedSessionId] = {};
+  }
+  
+  // Check if we have too many pending verifications
+  if (Object.keys(pendingVerifications[normalizedSessionId]).length >= SESSION_CONSTANTS.MAX_PENDING_VERIFICATIONS) {
+    return {
+      accepted: false,
+      message: 'Too many pending verification requests for this session'
+    };
+  }
+  
+  // Store verification request with timeout
+  const timeoutId = setTimeout(() => {
+    // Handle verification timeout
+    handleVerificationTimeout(normalizedSessionId, clientId);
+  }, SESSION_CONSTANTS.VERIFICATION_TIMEOUT);
+  
+  // Store verification data
+  pendingVerifications[normalizedSessionId][clientId] = {
+    timestamp: Date.now(),
+    encryptedVerification,
+    timeoutId,
+    callback,
+    verifications: {
+      approved: 0,
+      denied: 0,
+      total: authorizedClientsCount
+    }
+  };
+  
+  return {
+    accepted: true,
+    message: 'Join request accepted for verification',
+    pendingTimeout: SESSION_CONSTANTS.VERIFICATION_TIMEOUT
+  };
+}
+
+/**
+ * Submit verification result from an authorized client
+ * @param {string} sessionId - The session identifier
+ * @param {string} verifierClientId - ID of the client submitting the verification
+ * @param {string} targetClientId - ID of the client being verified
+ * @param {boolean} approved - Whether verification was approved
+ * @returns {object} Result with status
+ */
+function submitVerificationResult(sessionId, verifierClientId, targetClientId, approved) {
+  // Normalize session ID
+  const normalizedSessionId = sessionId.trim();
+  
+  // Check if session exists
+  if (!sessions[normalizedSessionId]) {
+    return { success: false, message: 'Session does not exist' };
+  }
+  
+  // Check if verifier is authorized
+  const isAuthorized = sessions[normalizedSessionId].authorizedClients?.has(verifierClientId);
+  if (!isAuthorized) {
+    return { success: false, message: 'Unauthorized verifier' };
+  }
+  
+  // Check if we have pending verification for this client
+  if (!pendingVerifications[normalizedSessionId] || 
+      !pendingVerifications[normalizedSessionId][targetClientId]) {
+    return { success: false, message: 'No pending verification for this client' };
+  }
+  
+  const verification = pendingVerifications[normalizedSessionId][targetClientId];
+  
+  // Record verification result
+  if (approved) {
+    verification.verifications.approved++;
+  } else {
+    verification.verifications.denied++;
+    
+    // If ANY client denies, immediately fail verification and ban the session
+    clearTimeout(verification.timeoutId);
+    
+    // Ban the session
+    banSession(normalizedSessionId, 'Verification failure - possible security breach');
+    
+    // Close verification with denial
+    finalizeVerification(normalizedSessionId, targetClientId, false);
     
     return { 
       success: true, 
-      message: 'New session created', 
-      isNewSession: true 
+      message: 'Verification denied - session banned',
+      banned: true
     };
   }
+  
+  // Check if all clients have verified
+  const { approved: approvedCount, total } = verification.verifications;
+  if (approvedCount === total) {
+    // All approved - finalize verification
+    clearTimeout(verification.timeoutId);
+    finalizeVerification(normalizedSessionId, targetClientId, true);
+  }
+  
+  return { success: true, message: 'Verification result recorded' };
+}
+
+/**
+ * Finalize a verification process
+ * @param {string} sessionId - The session identifier
+ * @param {string} clientId - The client being verified
+ * @param {boolean} approved - Final verification result
+ */
+function finalizeVerification(sessionId, clientId, approved) {
+  if (!pendingVerifications[sessionId] || !pendingVerifications[sessionId][clientId]) {
+    return;
+  }
+  
+  const verification = pendingVerifications[sessionId][clientId];
+  
+  // Execute callback with result
+  if (verification.callback) {
+    verification.callback({
+      approved,
+      sessionId,
+      clientId,
+      timestamp: Date.now()
+    });
+  }
+  
+  // If approved, add to authorized clients
+  if (approved && sessions[sessionId]) {
+    if (!sessions[sessionId].authorizedClients) {
+      sessions[sessionId].authorizedClients = new Set();
+    }
+    sessions[sessionId].authorizedClients.add(clientId);
+  }
+  
+  // Clean up
+  delete pendingVerifications[sessionId][clientId];
+  
+  // If no more pending verifications for this session, clean up session entry
+  if (Object.keys(pendingVerifications[sessionId]).length === 0) {
+    delete pendingVerifications[sessionId];
+  }
+}
+
+/**
+ * Handle verification timeout
+ * @param {string} sessionId - The session identifier
+ * @param {string} clientId - The client being verified
+ */
+function handleVerificationTimeout(sessionId, clientId) {
+  console.log(`Verification timeout for client ${clientId} in session ${sessionId}`);
+  
+  if (!pendingVerifications[sessionId] || !pendingVerifications[sessionId][clientId]) {
+    return;
+  }
+  
+  // Finalize as failed
+  finalizeVerification(sessionId, clientId, false);
+}
+
+/**
+ * Ban a session for security reasons
+ * @param {string} sessionId - The session identifier to ban
+ * @param {string} reason - Reason for the ban
+ */
+function banSession(sessionId, reason) {
+  console.log(`Banning session ${sessionId}: ${reason}`);
+  
+  // Add to banned sessions with expiration time
+  bannedSessions.set(sessionId, {
+    timestamp: Date.now(),
+    expiry: Date.now() + SESSION_CONSTANTS.BAN_DURATION,
+    reason
+  });
+}
+
+/**
+ * Check if a session is currently banned
+ * @param {string} sessionId - The session identifier to check
+ * @returns {boolean} True if session is banned
+ */
+function isBannedSession(sessionId) {
+  // Clean up expired bans first
+  cleanupExpiredBans();
+  
+  // Check if session is in banned list
+  return bannedSessions.has(sessionId);
+}
+
+/**
+ * Remove expired bans from the banned sessions list
+ */
+function cleanupExpiredBans() {
+  const now = Date.now();
+  
+  // Remove expired bans
+  for (const [sessionId, banInfo] of bannedSessions.entries()) {
+    if (banInfo.expiry <= now) {
+      bannedSessions.delete(sessionId);
+      console.log(`Ban expired for session ${sessionId}`);
+    }
+  }
+}
+
+/**
+ * Get ban information for a session
+ * @param {string} sessionId - The session identifier
+ * @returns {object|null} Ban information or null if not banned
+ */
+function getSessionBanInfo(sessionId) {
+  if (!isBannedSession(sessionId)) {
+    return null;
+  }
+  
+  const banInfo = bannedSessions.get(sessionId);
+  return {
+    ...banInfo,
+    remainingTime: banInfo.expiry - Date.now()
+  };
 }
 
 /**
@@ -164,12 +479,21 @@ function updateClipboardContent(sessionId, content, originClient) {
  * Add a client to a session
  * @param {string} sessionId - The session identifier
  * @param {string} clientId - The client socket ID
+ * @param {boolean} authorized - Whether client is authorized
  */
-function addClientToSession(sessionId, clientId) {
+function addClientToSession(sessionId, clientId, authorized = false) {
   if (sessions[sessionId]) {
     // Add client if not already in the list
     if (!sessions[sessionId].clients.includes(clientId)) {
       sessions[sessionId].clients.push(clientId);
+    }
+    
+    // If authorized, add to authorized clients set
+    if (authorized) {
+      if (!sessions[sessionId].authorizedClients) {
+        sessions[sessionId].authorizedClients = new Set();
+      }
+      sessions[sessionId].authorizedClients.add(clientId);
     }
   }
 }
@@ -179,8 +503,9 @@ function addClientToSession(sessionId, clientId) {
  * @param {string} sessionId - The session identifier
  * @param {string} clientId - The client socket ID
  * @param {Object} clientInfo - The client information including IP, browser details, etc.
+ * @param {boolean} authorized - Whether client is authorized
  */
-function addClientWithInfo(sessionId, clientId, clientInfo) {
+function addClientWithInfo(sessionId, clientId, clientInfo, authorized = false) {
   if (!sessions[sessionId]) return;
   
   // Add client to basic clients list if not already there
@@ -196,8 +521,17 @@ function addClientWithInfo(sessionId, clientId, clientInfo) {
   // Store the client info
   sessions[sessionId].clientsInfo[clientId] = {
     ...clientInfo,
-    lastActivity: Date.now()
+    lastActivity: Date.now(),
+    authorized: authorized
   };
+  
+  // If authorized, add to authorized clients set
+  if (authorized) {
+    if (!sessions[sessionId].authorizedClients) {
+      sessions[sessionId].authorizedClients = new Set();
+    }
+    sessions[sessionId].authorizedClients.add(clientId);
+  }
 }
 
 /**
@@ -210,7 +544,12 @@ function removeClientFromSession(sessionId, clientId) {
     // Remove from clients array
     sessions[sessionId].clients = sessions[sessionId].clients.filter(id => id !== clientId);
     
-    // ALSO remove from clientsInfo object
+    // Remove from authorized clients set
+    if (sessions[sessionId].authorizedClients) {
+      sessions[sessionId].authorizedClients.delete(clientId);
+    }
+    
+    // Remove from clientsInfo object
     if (sessions[sessionId].clientsInfo && sessions[sessionId].clientsInfo[clientId]) {
       delete sessions[sessionId].clientsInfo[clientId];
     }
@@ -346,6 +685,33 @@ function getActiveSessions() {
 }
 
 /**
+ * Check if a client is authorized in a session
+ * @param {string} sessionId - The session identifier
+ * @param {string} clientId - The client socket ID
+ * @returns {boolean} True if client is authorized
+ */
+function isClientAuthorized(sessionId, clientId) {
+  if (!sessions[sessionId] || !sessions[sessionId].authorizedClients) {
+    return false;
+  }
+  
+  return sessions[sessionId].authorizedClients.has(clientId);
+}
+
+/**
+ * Get all authorized clients for a session
+ * @param {string} sessionId - The session identifier
+ * @returns {Array} Array of authorized client IDs
+ */
+function getAuthorizedClients(sessionId) {
+  if (!sessions[sessionId] || !sessions[sessionId].authorizedClients) {
+    return [];
+  }
+  
+  return Array.from(sessions[sessionId].authorizedClients);
+}
+
+/**
  * Get detailed status information about all sessions
  * @returns {Object} Object with session status information
  */
@@ -460,7 +826,16 @@ function cleanupNonResponsiveClients(sessionId) {
 }
 
 module.exports = {
-  joinSession,
+  checkSessionExists,
+  createNewSession,
+  registerJoinRequest,
+  submitVerificationResult,
+  finalizeVerification,
+  handleVerificationTimeout,
+  banSession,
+  isBannedSession,
+  getSessionBanInfo,
+  cleanupExpiredBans,
   getClipboardContent,
   updateClipboardContent,
   addClientToSession,
@@ -470,6 +845,8 @@ module.exports = {
   getSessionClientsInfo,
   getClientCount,
   isClientActive,
+  isClientAuthorized,
+  getAuthorizedClients,
   getActiveSessionClients,
   recordPingResponse,
   cleanupNonResponsiveClients,
