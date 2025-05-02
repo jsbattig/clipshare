@@ -11,7 +11,7 @@ import { getElement, formatFileSize, getFileExtension } from './utils.js';
 import * as UIManager from './ui-manager.js';
 import * as ClipboardUtils from './clipboard-monitor.js';
 import * as Session from './session.js';
-import { decryptClipboardContent } from './encryption.js';
+import { decryptClipboardContent, decryptData } from './encryption.js';
 
 // Module state
 let currentContentState = CONFIG.contentTypes.EMPTY;
@@ -296,17 +296,68 @@ export function downloadFile() {
   }
   
   try {
-    const fileName = sharedFile.fileName || 'download';
+    // Get session data for decryption
+    const sessionData = Session.getCurrentSession();
+    if (!sessionData || !sessionData.passphrase) {
+      console.error('Cannot decrypt file: No valid session passphrase');
+      UIManager.displayMessage('Cannot download: Missing decryption key', 'error', 5000);
+      return;
+    }
+    
+    // Create a copy of the file data to decrypt
+    const fileToDownload = {...sharedFile};
+    
+    // Check if the file content needs decryption (if it's a data URL containing encrypted content)
+    // Most file content is stored as data URLs (data:mime/type;base64,CONTENT)
+    if (typeof fileToDownload.content === 'string' && 
+        fileToDownload.content.startsWith('data:') && 
+        fileToDownload.content.includes('U2FsdGVk')) {
+      
+      console.log('Encrypted data URL detected, attempting to decrypt content');
+      
+      // Extract the MIME type and base64 part
+      const matches = fileToDownload.content.match(/^data:([^;]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const mimeType = matches[1];
+        const encryptedContent = matches[2];
+        
+        // Decrypt the content
+        try {
+          const decryptedContent = decryptData(encryptedContent, sessionData.passphrase);
+          console.log('Successfully decrypted file content for download');
+          
+          // Reconstruct the data URL
+          fileToDownload.content = `data:${mimeType};base64,${decryptedContent}`;
+        } catch (decryptErr) {
+          console.error('Failed to decrypt file content:', decryptErr);
+          UIManager.displayMessage('Download failed: Could not decrypt file content', 'error', 5000);
+          return;
+        }
+      }
+    }
+    
+    // Decrypt filename if it appears to be encrypted
+    if (fileToDownload.fileName && fileToDownload.fileName.startsWith('U2FsdGVk')) {
+      try {
+        fileToDownload.fileName = decryptData(fileToDownload.fileName, sessionData.passphrase);
+        console.log('Successfully decrypted filename for download:', fileToDownload.fileName);
+      } catch (decryptErr) {
+        console.error('Failed to decrypt filename:', decryptErr);
+        fileToDownload.fileName = 'download'; // Fallback to generic name
+      }
+    }
+    
+    // Create and trigger the download with decrypted data
     const linkEl = document.createElement('a');
-    linkEl.href = sharedFile.content;
-    linkEl.download = fileName;
+    linkEl.href = fileToDownload.content;
+    linkEl.download = fileToDownload.fileName || 'download';
     
     // Append to document temporarily
     document.body.appendChild(linkEl);
     linkEl.click();
     document.body.removeChild(linkEl);
     
-    UIManager.displayMessage(`Downloading: ${fileName}`, 'success', 3000);
+    UIManager.displayMessage(`Downloading: ${fileToDownload.fileName}`, 'success', 3000);
   } catch (err) {
     console.error('Download failed:', err);
     UIManager.displayMessage('Failed to download file: ' + err.message, 'error', 3000);

@@ -176,21 +176,16 @@ export function displayFileContent(fileData) {
   emptyFileState.classList.add('hidden');
   fileContainer.classList.remove('hidden');
   
-  // Check if filename is encrypted (starts with the AES marker)
-  let displayFileName = fileData.fileName || 'Unknown file';
-  if (displayFileName.startsWith('U2FsdGVk')) {
-    console.log('Encrypted filename detected in UI. This should be decrypted before display.');
-    // We'll use a placeholder since we can't decrypt here without creating circular dependency
-    displayFileName = 'Encrypted file';
-  }
+  // Just use the filename provided - content-handlers.js should have decrypted it already
+  const displayFileName = fileData.fileName || 'Unknown file';
   
   // Update file info if elements exist
   if (fileNameEl) fileNameEl.textContent = displayFileName;
   if (fileSizeEl) fileSizeEl.textContent = formatFileSize(fileData.fileSize || 0);
   if (fileMimeEl) fileMimeEl.textContent = fileData.fileType || 'unknown/type';
   
-  // Set file extension in icon if we can determine it and filename is not encrypted
-  if (fileTypeIcon && displayFileName && !displayFileName.startsWith('U2FsdGVk')) {
+  // Set file extension in icon if we can determine it
+  if (fileTypeIcon && displayFileName) {
     const extension = displayFileName.split('.').pop().toLowerCase();
     if (extension) {
       fileTypeIcon.setAttribute('data-extension', extension);
