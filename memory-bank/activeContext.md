@@ -10,6 +10,19 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Blob-Based Download Fix (May 2, 2025):**
+- Fixed persistent download issues showing "Network issue" error in browser:
+  - Identified root cause: Direct use of data URLs in href attributes doesn't work well for large files
+  - Implemented a robust Blob-based download approach:
+    - Added downloadAsBlob helper function to convert data URLs to Blobs
+    - Created Object URLs from Blobs for more reliable downloads
+    - Implemented proper cleanup with URL.revokeObjectURL
+    - Added extensive validation and error handling
+    - Fixed in both content-handlers.js and file-operations.js to ensure all download paths use this approach
+  - Added more detailed error reporting and debugging
+  - Fixed success messages to always show the correct original filename
+- Key insight: Using URL.createObjectURL with Blobs is more reliable than direct data URLs for downloads
+
 **Simplified File Download Fix (May 2, 2025):**
 - Fixed continuing issue with file downloads on the sender side:
   - Previously: Downloads were showing success message but failing with "Network issue" errors
