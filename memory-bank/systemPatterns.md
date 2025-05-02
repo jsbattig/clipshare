@@ -53,30 +53,59 @@ graph TD
   - Multiple fallback methods for cross-browser compatibility
   - Support for text and image content types
 
-### 4. Authentication Flow
-- **Purpose**: Secures sessions with simple passphrase verification
-- **Design Pattern**: Token-based authentication with local storage
+### 4. Enhanced Secure Authentication System
+- **Purpose**: Secures sessions with client-side encryption and quorum-based verification
+- **Design Pattern**: Client-side encryption with AES + quorum-based authorization
 - **Key Features**:
+  - Client-side encryption using AES (via CryptoJS)
+  - Passphrases never transmitted to server - only encrypted verification data
+  - Quorum-based verification where existing authorized clients verify new ones
+  - Session banning for suspected security breaches (10-minute timeout)
   - Session persistence across page reloads
-  - Join existing session with correct passphrase
   - Auto-reconnection on disconnects
+- **Authentication Process**:
+  ```mermaid
+  sequenceDiagram
+    participant Client as New Client
+    participant Server
+    participant Auth as Authorized Clients
+    
+    Client->>Server: 1. Check if session exists
+    Server->>Client: Session status (exists/active)
+    
+    alt New Session
+        Client->>Server: Create new session (sessionId)
+        Server->>Client: Session created (auto-authorized)
+    else Join Existing Session
+        Client->>Server: Request join (encrypted verification)
+        Server->>Auth: Broadcast verification request
+        Auth->>Server: Verification results
+        Server->>Client: Verification result (approved/denied)
+    end
+  ```
 - **Critical Implementation Note**:
-  - Must consistently use 'clipshare_session' as the localStorage key
-  - Breaking this consistency causes authentication loops and session failures
-  - Avoid using variations (e.g., 'clipboard-session') to prevent confusion
+  - Uses 'clipshare_session' as the localStorage key consistently
+  - Encrypted verification proves knowledge of passphrase without transmitting it
+  - Server maintains list of authorized clients per session
 
 ## Communication Patterns
 
 ### WebSocket Event System
 The application uses a well-defined WebSocket event system:
 
-| Event                | Direction        | Purpose                                       |
-|----------------------|------------------|-----------------------------------------------|
-| join-session         | Client → Server  | Authenticate and join a session               |
-| clipboard-update     | Client → Server  | Send new clipboard content to server          |
-| clipboard-broadcast  | Server → Client  | Broadcast clipboard update to other clients   |
-| client-joined        | Server → Client  | Notify when a new client joins the session    |
-| client-left          | Server → Client  | Notify when a client leaves the session       |
+| Event                    | Direction        | Purpose                                          |
+|--------------------------|------------------|--------------------------------------------------|
+| check-session-exists     | Client → Server  | Check if a session exists and has active clients |
+| create-new-session       | Client → Server  | Create and automatically authorize a new session |
+| request-session-join     | Client → Server  | Request to join with encrypted verification      |
+| verify-join-request      | Server → Client  | Ask authorized clients to verify a join request  |
+| submit-verification-result | Client → Server | Submit result of verification check             |
+| verification-result      | Server → Client  | Notify client of verification acceptance/denial  |
+| clipboard-update         | Client → Server  | Send new clipboard content to server             |
+| clipboard-broadcast      | Server → Client  | Broadcast clipboard update to other clients      |
+| client-joined            | Server → Client  | Notify when a new client joins the session       |
+| client-left              | Server → Client  | Notify when a client leaves the session          |
+| session-banned           | Server → Client  | Notify that a session has been banned            |
 
 ### State Management
 - **Server State**: Maintained in-memory with session isolation
@@ -110,9 +139,12 @@ The application uses a well-defined WebSocket event system:
 
 ## Security Model
 - **Session Isolation**: Content is isolated to specific session groups
-- **Passphrase Protection**: Simple but effective barrier for casual use
+- **Client-side Encryption**: Passphrases never transmitted to server
+- **Quorum Verification**: Existing authorized clients verify new ones
+- **Session Banning**: Temporary bans (10 minutes) for suspected security breaches
 - **No Persistence**: Clipboard data only stored in memory, not persisted to disk
 - **Frontend Security**: No clipboard content in URLs or exposed parameters
+- **Authorization Checks**: All content updates verified against authorized client list
 
 ## Code Stability Practices
 - **Stable Commit Reference**: db428d57 established as baseline for stable functionality
