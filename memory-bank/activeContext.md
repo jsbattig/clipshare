@@ -17,6 +17,14 @@ Initial implementation of the application with:
 - Docker and Docker Compose configuration
 - GitHub integration with Actions workflow
 
+**Client Identification Display Fix (May 2, 2025):**
+- Fixed client name display in Connected Devices panel
+- Added proper client name flow from login form to server to UI display
+- Ensured client name is included in socket connection parameters
+- Added debug logging for client name tracking
+- Updated UI notifications to display client names instead of technical details
+- Complete removal of IP addresses from client-facing information
+
 **Client Identification Simplification (May 2, 2025):**
 - Simplified client identification by removing IP detection and display
 - Modified Connected Devices panel to show only client names
