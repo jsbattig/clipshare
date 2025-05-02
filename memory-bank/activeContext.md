@@ -21,8 +21,10 @@ Initial implementation of the application with:
 - Fixed client name display in Connected Devices panel
 - Added proper client name flow from login form to server to UI display
 - Ensured client name is included in socket connection parameters
+- Fixed issues with client name storage on socket object
 - Added debug logging for client name tracking
-- Updated UI notifications to display client names instead of technical details
+- Enhanced socket-server handshake to preserve client name
+- Improved UI rendering to prioritize client name display
 - Complete removal of IP addresses from client-facing information
 
 **Client Identification Simplification (May 2, 2025):**
