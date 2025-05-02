@@ -17,19 +17,18 @@ Initial implementation of the application with:
 - Docker and Docker Compose configuration
 - GitHub integration with Actions workflow
 
-**Client Identification Display Fix (May 2, 2025):**
-- Fixed client name and external IP display in Connected Devices panel
-- Identified issue in data flow where client details were nested in browserInfo but not extracted
-- Modified server-side getSessionClientsInfo() to properly extract values
-- Ensured browserInfo properties are consistently included at both nested and top levels
-- Updated client information capture to properly store and relay client name
-- Verified data integrity throughout client tracking system
+**Client Identification Simplification (May 2, 2025):**
+- Simplified client identification by removing IP detection and display
+- Modified Connected Devices panel to show only client names
+- Removed ipify.org API dependency for external IP detection
+- Streamlined client tracking by focusing only on user-provided names
+- Eliminated potential external service dependencies
+- Reduced potential privacy concerns by not tracking or displaying IP addresses
 
 **Client Identification Improvement (May 2, 2025):**
 - Added mandatory "Client Name" field to login form for better device identification
-- Implemented external IP detection using ipify.org API with appropriate fallbacks
 - Enhanced the Connected Devices panel to show user-provided names instead of "Unknown on Unknown"
-- Improved client tracking by storing the client name and IP with session data
+- Improved client tracking by storing client name with session data
 - Eliminated reliance on proxy IPs which were providing irrelevant information
 - Enhanced browser info tracking to include client identification details
 
