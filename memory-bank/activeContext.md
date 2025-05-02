@@ -10,6 +10,18 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Fixed Sender-Side File Download Issue (May 2, 2025):**
+- Fixed persistent issue where file downloads still failed on the sender side despite earlier fixes
+- Identified root cause: Original file data was not being properly persisted between module boundaries
+- Implemented robust solution:
+  - Added extensive debugging to trace data flow through the application
+  - Exported ContentHandlers to window object to enable direct access from file-operations.js
+  - Added file data verification on upload to ensure original content is properly stored
+  - Enhanced download function with multiple fallback decryption attempts as a safety net
+  - Added detailed logging to verify the original file data is preserved
+- Added proper reference checking to ensure _originalData stays intact throughout the application
+- The file download "Network issue" error is now resolved on both sender and receiver sides
+
 **Major File Handling Encryption Fix (May 2, 2025):**
 - Fixed critical issues with encrypted file handling on both sender and receiver sides:
   - Files were displaying encrypted filenames on sender side
