@@ -289,6 +289,9 @@ function handleFileBroadcast(fileData) {
           if (decrypted && decrypted.fileName && !decrypted.fileName.startsWith('U2FsdGVk')) {
             displayName = decrypted.fileName;
             console.log('Successfully decrypted filename for display:', displayName);
+            
+            // Store the decrypted filename for UI display and downloads
+            fileData._displayFileName = displayName;
           }
         }
       } catch (error) {

@@ -307,13 +307,30 @@ export function downloadFile() {
     // Create a copy of the file data to decrypt
     const fileToDownload = {...sharedFile};
     
-    // Check if the file content needs decryption (if it's a data URL containing encrypted content)
-    // Most file content is stored as data URLs (data:mime/type;base64,CONTENT)
+    // Check if content is encrypted (starts with the AES marker)
+    if (typeof fileToDownload.content === 'string' && fileToDownload.content.startsWith('U2FsdGVk')) {
+      console.log('Encrypted content detected, attempting to decrypt full content string');
+      
+      try {
+        // Decrypt the ENTIRE content string - this is a full AES encrypted string
+        // not a data URL with an encrypted part
+        const decryptedContent = decryptData(fileToDownload.content, sessionData.passphrase);
+        console.log('Successfully decrypted file content for download');
+        fileToDownload.content = decryptedContent;
+      } catch (decryptErr) {
+        console.error('Failed to decrypt file content:', decryptErr);
+        UIManager.displayMessage('Download failed: Could not decrypt file content', 'error', 5000);
+        return;
+      }
+    }
+    
+    // If content still starts with "data:" but contains "U2FsdGVk", it might be a data URL with encrypted content
+    // This is a fallback for potentially different encryption patterns
     if (typeof fileToDownload.content === 'string' && 
         fileToDownload.content.startsWith('data:') && 
         fileToDownload.content.includes('U2FsdGVk')) {
       
-      console.log('Encrypted data URL detected, attempting to decrypt content');
+      console.log('Found data URL with encrypted content, attempting secondary decryption');
       
       // Extract the MIME type and base64 part
       const matches = fileToDownload.content.match(/^data:([^;]+);base64,(.+)$/);
@@ -321,23 +338,24 @@ export function downloadFile() {
         const mimeType = matches[1];
         const encryptedContent = matches[2];
         
-        // Decrypt the content
         try {
           const decryptedContent = decryptData(encryptedContent, sessionData.passphrase);
-          console.log('Successfully decrypted file content for download');
-          
-          // Reconstruct the data URL
+          console.log('Successfully decrypted file content part for download');
           fileToDownload.content = `data:${mimeType};base64,${decryptedContent}`;
         } catch (decryptErr) {
-          console.error('Failed to decrypt file content:', decryptErr);
-          UIManager.displayMessage('Download failed: Could not decrypt file content', 'error', 5000);
-          return;
+          console.error('Failed to decrypt partial file content:', decryptErr);
+          // Continue with what we have - don't return
         }
       }
     }
     
-    // Decrypt filename if it appears to be encrypted
-    if (fileToDownload.fileName && fileToDownload.fileName.startsWith('U2FsdGVk')) {
+    // Use original filename if available on source client
+    if (fileToDownload._displayFileName) {
+      console.log('Using original filename for download:', fileToDownload._displayFileName);
+      fileToDownload.fileName = fileToDownload._displayFileName;
+    } 
+    // Otherwise decrypt filename if it appears to be encrypted
+    else if (fileToDownload.fileName && fileToDownload.fileName.startsWith('U2FsdGVk')) {
       try {
         fileToDownload.fileName = decryptData(fileToDownload.fileName, sessionData.passphrase);
         console.log('Successfully decrypted filename for download:', fileToDownload.fileName);
@@ -351,6 +369,12 @@ export function downloadFile() {
     const linkEl = document.createElement('a');
     linkEl.href = fileToDownload.content;
     linkEl.download = fileToDownload.fileName || 'download';
+    
+    // Log download attempt for debugging
+    console.log('Initiating download with:');
+    console.log('- Filename:', fileToDownload.fileName);
+    console.log('- Content type:', typeof fileToDownload.content);
+    console.log('- Content starts with:', fileToDownload.content.substring(0, 50) + '...');
     
     // Append to document temporarily
     document.body.appendChild(linkEl);

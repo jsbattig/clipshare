@@ -176,8 +176,14 @@ export function displayFileContent(fileData) {
   emptyFileState.classList.add('hidden');
   fileContainer.classList.remove('hidden');
   
-  // Just use the filename provided - content-handlers.js should have decrypted it already
-  const displayFileName = fileData.fileName || 'Unknown file';
+  // Use _displayFileName if available (for source client)
+  // Otherwise use the regular fileName (which should be decrypted by content-handlers.js)
+  let displayFileName = fileData._displayFileName || fileData.fileName || 'Unknown file';
+  
+  // Log what name we're displaying
+  if (fileData._displayFileName) {
+    console.log('Using original filename for display:', fileData._displayFileName);
+  }
   
   // Update file info if elements exist
   if (fileNameEl) fileNameEl.textContent = displayFileName;
