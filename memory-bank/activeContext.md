@@ -10,6 +10,19 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Fixed File Sharing & Socket Disconnection Issues (May 2, 2025):**
+- Fixed critical issues with file sharing and socket disconnections:
+  - Previously: When files were dropped onto the sender, disconnections occurred and files weren't shared
+  - Root Cause: Decryption attempts on content that wasn't actually encrypted caused errors
+  - Multiple components were improved:
+    1. **Encryption Module**: Added robust validation to prevent decryption attempts on non-encrypted content
+    2. **Content Handlers**: Added sender-side detection to skip unnecessary decryption 
+    3. **Socket Events**: Completely rewrote file sending logic with comprehensive error handling
+  - Added extensive debugging and logging throughout the file transmission flow
+  - Implemented proper try/catch blocks to prevent socket disconnections
+  - Made encryption operations more robust to prevent failures
+- Result: Files now properly transmit from sender to receiver without disconnections
+
 **Unified Download Architecture (May 2, 2025):**
 - Completely refactored file download functionality to use a single unified approach:
   - Removed duplicate download methods across modules
