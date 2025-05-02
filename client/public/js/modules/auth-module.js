@@ -108,6 +108,10 @@ export function createOrJoinSession(sessionId, passphrase, onStatusUpdate) {
     // Set temporary status update callback
     if (onStatusUpdate) authCallbacks.onStatusUpdate = onStatusUpdate;
     
+    // Store the Promise resolve function for use in handleVerificationResult
+    authCallbacks.resolvePromise = resolve;
+    authCallbacks.rejectPromise = reject;
+    
     // Update status
     updateStatus('Checking session existence...');
     
@@ -313,6 +317,11 @@ function handleVerificationResult(data) {
       if (authCallbacks.onFailure) {
         authCallbacks.onFailure('Session data error');
       }
+      
+      // Also reject the Promise if it exists
+      if (authCallbacks.rejectPromise) {
+        authCallbacks.rejectPromise('Session data error');
+      }
       return;
     }
     
@@ -321,6 +330,12 @@ function handleVerificationResult(data) {
     // Trigger success callback
     if (authCallbacks.onSuccess) {
       authCallbacks.onSuccess(sessionData);
+    }
+    
+    // CRITICAL: Resolve the Promise to trigger the redirect
+    if (authCallbacks.resolvePromise) {
+      console.log("Resolving auth promise - this should trigger redirect");
+      authCallbacks.resolvePromise(sessionData);
     }
   } else {
     updateStatus('Verification failed. Access denied.', 'error');
@@ -331,6 +346,11 @@ function handleVerificationResult(data) {
     // Trigger failure callback
     if (authCallbacks.onFailure) {
       authCallbacks.onFailure('Verification failed. Session may have been banned.');
+    }
+    
+    // Also reject the Promise
+    if (authCallbacks.rejectPromise) {
+      authCallbacks.rejectPromise('Verification failed. Session may have been banned.');
     }
   }
 }
@@ -345,6 +365,11 @@ function handleVerificationTimeout(data) {
   // Trigger failure callback
   if (authCallbacks.onFailure) {
     authCallbacks.onFailure('Verification timed out. Please try again.');
+  }
+  
+  // Also reject the Promise if it exists
+  if (authCallbacks.rejectPromise) {
+    authCallbacks.rejectPromise('Verification timed out. Please try again.');
   }
 }
 
@@ -366,6 +391,11 @@ function handleSessionBanned(data) {
   // Trigger failure callback
   if (authCallbacks.onFailure) {
     authCallbacks.onFailure(`Session banned: ${reason}`);
+  }
+  
+  // Also reject the Promise if it exists
+  if (authCallbacks.rejectPromise) {
+    authCallbacks.rejectPromise(`Session banned: ${reason}`);
   }
 }
 
