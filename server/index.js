@@ -337,11 +337,16 @@ io.on('connection', (socket) => {
     if (approved) {
       console.log(`Verification approved for client ${clientId} in session ${sessionId}`);
       
-      // Get client info if available
+      // Get client info if available - ensure persistentId is included
       const clientInfo = {
         id: clientId,
         ip: socket.handshake.address,
-        browserInfo: socket.browserInfo || { name: 'Unknown', os: 'Unknown' },
+        browserInfo: {
+          ...(socket.browserInfo || {}),
+          name: socket.browserInfo?.name || 'Unknown',
+          os: socket.browserInfo?.os || 'Unknown',
+          persistentId: socket.persistentIdentity || socket.persistentClientId
+        },
         connectedAt: new Date().toISOString()
       };
       
@@ -501,8 +506,22 @@ io.on('connection', (socket) => {
       // Join socket.io room for this session
       socket.join(sessionId);
       
-      // Add client to session and mark as authorized
-      sessionManager.addClientToSession(sessionId, socket.id, true);
+      // Capture client information properly including persistent ID
+      const clientInfo = {
+        id: socket.id,
+        ip: socket.handshake.address,
+        browserInfo: {
+          name: "Unknown",
+          os: "Unknown",
+          persistentId: socket.persistentIdentity || socket.persistentClientId
+        },
+        connectedAt: new Date().toISOString()
+      };
+      
+      console.log(`Creating session with client info:`, JSON.stringify(clientInfo));
+      
+      // Add client to session with full info and mark as authorized
+      sessionManager.addClientWithInfo(sessionId, socket.id, clientInfo, true);
       
       // Get current clipboard content (empty for new sessions)
       const currentContent = sessionManager.getClipboardContent(sessionId);
@@ -691,11 +710,17 @@ io.on('connection', (socket) => {
       
       // No need to register separately - we'll use getActiveSessions()
       
-      // Capture client information including IP address
+      // Capture client information including IP address and persistent ID
       const clientInfo = {
         id: socket.id,
         ip: socket.handshake.address,
-        browserInfo: browserInfo || { name: 'Unknown', os: 'Unknown' },
+        browserInfo: {
+          ...(browserInfo || {}),
+          name: browserInfo?.name || 'Unknown',
+          os: browserInfo?.os || 'Unknown',
+          // Make sure persistentId is included
+          persistentId: socket.persistentIdentity || socket.persistentClientId
+        },
         connectedAt: new Date().toISOString()
       };
       
