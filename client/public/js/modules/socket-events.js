@@ -437,41 +437,113 @@ export function sendClipboardUpdate(content) {
  * @param {Object} fileData - File data
  */
 export function sendFileUpdate(fileData) {
-  if (!socket || !socket.connected) {
-    console.warn('Cannot send file update: socket not connected');
-    UIManager.displayMessage('Cannot share file: Not connected to server', 'error', 3000);
-    return false;
-  }
-  
-  // Add additional metadata
-  const enhancedFileData = {
-    ...fileData,
-    originClient: socket.id,
-    clientInfo: getBrowserInfo(),
-    timestamp: fileData.timestamp || Date.now()
-  };
-  
-  // Get session data for encryption
-  const sessionData = Session.getCurrentSession();
-  if (!sessionData || !sessionData.passphrase) {
-    console.error('Cannot encrypt file: No valid session passphrase available');
-    UIManager.displayMessage('Cannot encrypt file: Session data not available', 'error', 3000);
-    return false;
-  }
+  // Log detailed file information for debugging
+  console.log('========== FILE UPLOAD STARTED ==========');
   
   try {
-    // Encrypt the file data before sending
-    const encryptedFileData = encryptClipboardContent(enhancedFileData, sessionData.passphrase);
+    if (!socket || !socket.connected) {
+      console.warn('Cannot send file update: socket not connected');
+      UIManager.displayMessage('Cannot share file: Not connected to server', 'error', 3000);
+      console.log('========== FILE UPLOAD FAILED: Socket not connected ==========');
+      return false;
+    }
     
-    console.log(`Sending encrypted file update: ${fileData.fileName}, size: ${formatFileSize(fileData.fileSize)} bytes`);
-    UIManager.displayMessage(`Sharing encrypted file with other devices: ${fileData.fileName}`, 'info', 3000);
+    // Validate file data
+    if (!fileData || !fileData.type || fileData.type !== 'file') {
+      console.error('Invalid file data - missing required properties');
+      UIManager.displayMessage('Cannot share file: Invalid file data', 'error', 3000);
+      console.log('========== FILE UPLOAD FAILED: Invalid file data ==========');
+      return false;
+    }
     
-    // Use separate file channel for sharing files
-    socket.emit('file-update', encryptedFileData);
-    return true;
-  } catch (error) {
-    console.error('Failed to encrypt and send file:', error);
-    UIManager.displayMessage('Failed to encrypt file for sending', 'error', 3000);
+    console.log('File data validation passed');
+    
+    // Log original data information
+    if (fileData._originalData) {
+      console.log('File has _originalData attached - sender side confirmed');
+    } else if (window.originalFileData) {
+      console.log('Global originalFileData exists - sender side confirmed');
+    }
+    
+    // Get best available filename for display
+    let displayFilename = fileData.fileName;
+    if (fileData._displayFileName) {
+      displayFilename = fileData._displayFileName;
+    } else if (fileData._originalData && fileData._originalData.fileName) {
+      displayFilename = fileData._originalData.fileName;
+    } else if (window.originalFileData && window.originalFileData.fileName) {
+      displayFilename = window.originalFileData.fileName;
+    }
+    
+    // Get session data for encryption
+    const sessionData = Session.getCurrentSession();
+    if (!sessionData || !sessionData.passphrase) {
+      console.error('Cannot encrypt file: No valid session passphrase available');
+      UIManager.displayMessage('Cannot encrypt file: Session data not available', 'error', 3000);
+      console.log('========== FILE UPLOAD FAILED: Missing session data ==========');
+      return false;
+    }
+    
+    console.log('Session data validated successfully');
+    
+    // Prepare enhanced file data with metadata
+    // We need to create a safe copy to prevent modifying the original
+    const enhancedFileData = {
+      type: 'file',
+      fileName: fileData.fileName,
+      fileSize: fileData.fileSize,
+      fileType: fileData.fileType || 'application/octet-stream',
+      content: fileData.content,
+      originClient: socket.id,
+      clientInfo: getBrowserInfo(),
+      timestamp: fileData.timestamp || Date.now()
+    };
+    
+    // Keep a safe reference to any original data for later use
+    if (fileData._originalData) {
+      enhancedFileData._originalData = { ...fileData._originalData };
+    }
+    if (fileData._displayFileName) {
+      enhancedFileData._displayFileName = fileData._displayFileName;
+    }
+    
+    console.log('Enhanced file data prepared successfully');
+    console.log(`Preparing to encrypt file: ${displayFilename}, size: ${formatFileSize(fileData.fileSize)} bytes`);
+    
+    // CRITICAL: Synchronously encrypt the data to prevent socket disconnections
+    let encryptedFileData;
+    try {
+      encryptedFileData = encryptClipboardContent(enhancedFileData, sessionData.passphrase);
+      console.log('File encryption successful');
+    } catch (encryptError) {
+      console.error('File encryption failed:', encryptError);
+      UIManager.displayMessage('Failed to encrypt file: ' + (encryptError.message || 'Unknown error'), 'error', 5000);
+      console.log('========== FILE UPLOAD FAILED: Encryption error ==========');
+      return false;
+    }
+    
+    // Show user notification message
+    UIManager.displayMessage(`Sharing encrypted file with other devices: ${displayFilename}`, 'info', 3000);
+    console.log(`Sending encrypted file update: ${displayFilename}, encrypted size: ${encryptedFileData.content?.length || 0} chars`);
+    
+    // Use try-catch to safely emit socket event
+    try {
+      // Use separate file channel for sharing files
+      socket.emit('file-update', encryptedFileData);
+      console.log('Socket.emit completed successfully');
+      console.log('========== FILE UPLOAD COMPLETED ==========');
+      return true;
+    } catch (socketError) {
+      console.error('Socket emit error:', socketError);
+      UIManager.displayMessage('Failed to send file: Network error', 'error', 3000);
+      console.log('========== FILE UPLOAD FAILED: Socket emit error ==========');
+      return false;
+    }
+  } catch (unexpectedError) {
+    // Outermost catch to prevent any unexpected failures
+    console.error('Unexpected error in sendFileUpdate:', unexpectedError);
+    UIManager.displayMessage('Failed to send file due to an unexpected error', 'error', 3000);
+    console.log('========== FILE UPLOAD FAILED: Unexpected error ==========');
     return false;
   }
 }

@@ -111,7 +111,33 @@ export function handleImageContent(imageData) {
  * @param {Object} fileData - File data object
  */
 export function handleFileContent(fileData) {
-  // Check if filename is encrypted (starts with the AES marker)
+  // IMPORTANT: Check if we're on the sender side by looking for original data
+  // This indicates we're the source of the file and have unencrypted data
+  if ((fileData._originalData && fileData._originalData.fileName) || 
+      window.originalFileData || 
+      fileData._displayFileName) {
+    console.log('Sender-side file detected - using original filename for display');
+    
+    // Create a display version with the original filename
+    const displayData = {...fileData};
+    
+    // Use the best available original filename
+    if (fileData._displayFileName) {
+      displayData.fileName = fileData._displayFileName;
+    } else if (fileData._originalData && fileData._originalData.fileName) {
+      displayData.fileName = fileData._originalData.fileName;
+    } else if (window.originalFileData && window.originalFileData.fileName) {
+      displayData.fileName = window.originalFileData.fileName;
+    }
+    
+    console.log('Using original filename for display:', displayData.fileName);
+    
+    // Pass the display-friendly data to UI (without any decryption attempt)
+    UIManager.displayFileContent(displayData);
+    return;
+  }
+  
+  // For receiver side - check if filename is encrypted (starts with the AES marker)
   if (fileData.fileName && fileData.fileName.startsWith('U2FsdGVk')) {
     console.log('Handling file with encrypted filename:', fileData.fileName.substring(0, 30) + '...');
     
@@ -140,6 +166,7 @@ export function handleFileContent(fileData) {
       }
     } catch (err) {
       console.error('Error decrypting filename for display:', err);
+      // Continue to fallback below - don't crash the app
     }
   }
   

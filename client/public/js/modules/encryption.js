@@ -28,7 +28,25 @@ export function encryptData(data, passphrase) {
  */
 export function decryptData(encryptedData, passphrase) {
   try {
-    // Decrypt the data
+    // Validate input to prevent errors
+    if (!encryptedData) {
+      console.warn('Cannot decrypt: encryptedData is null or undefined');
+      return encryptedData;
+    }
+    
+    if (typeof encryptedData !== 'string') {
+      console.warn('Cannot decrypt: encryptedData is not a string', typeof encryptedData);
+      return encryptedData;
+    }
+    
+    // Check if data is actually encrypted (AES encrypted data starts with "U2FsdGVk" in base64)
+    // This is "Salted__" when decoded - the standard AES encryption prefix
+    if (!encryptedData.startsWith('U2FsdGVk')) {
+      console.warn('Data does not appear to be encrypted (missing AES marker), returning as-is');
+      return encryptedData;
+    }
+    
+    // Proceed with decryption only if input is valid
     const bytes = CryptoJS.AES.decrypt(encryptedData, passphrase);
     const decryptedString = bytes.toString(CryptoJS.enc.Utf8);
     
@@ -44,7 +62,9 @@ export function decryptData(encryptedData, passphrase) {
     return decryptedString;
   } catch (error) {
     console.error('Decryption failed:', error);
-    throw new Error('Failed to decrypt data: ' + error.message);
+    // Return original data instead of throwing exception to prevent app from crashing
+    console.warn('Returning original data due to decryption failure');
+    return encryptedData;
   }
 }
 
