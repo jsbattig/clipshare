@@ -97,19 +97,28 @@ export function handleSingleFileUpload(file, onFileProcessed) {
             timestamp: Date.now()
           };
           
-          // Log the original file data being stored
-          console.log('ORIGINAL FILE DATA BEING STORED:', {
-            fileName: originalFileData.fileName,
-            fileSize: originalFileData.fileSize,
-            contentStart: originalFileData.content.substring(0, 30) + '...',
-            contentIsDataUrl: originalFileData.content.startsWith('data:')
+          // SIMPLIFIED APPROACH: Store original file data globally
+          // This ensures it's always accessible even if references are lost
+          window.originalFileData = {
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type || getMimeTypeFromExtension(file.name),
+            content: e.target.result,
+            timestamp: Date.now(),
+            isOriginal: true  // Flag to identify as original data
+          };
+          
+          console.log('ORIGINAL FILE DATA STORED GLOBALLY:', {
+            fileName: window.originalFileData.fileName,
+            fileSize: window.originalFileData.fileSize,
+            contentStart: window.originalFileData.content.substring(0, 30) + '...',
+            contentIsDataUrl: window.originalFileData.content.startsWith('data:')
           });
           
           // Encrypt the file data for transmission (using a copy to avoid modifying original)
           const encryptedFileData = encryptClipboardContent({...fileData}, sessionData.passphrase);
           
-          // Store the original unencrypted data in the encrypted data
-          // Using direct assignment to ensure reference is preserved
+          // Also preserve original data reference as before for backward compatibility
           encryptedFileData._originalData = originalFileData;
           
           // Also preserve original filename for display

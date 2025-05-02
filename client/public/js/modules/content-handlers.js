@@ -290,13 +290,42 @@ async function copyImageToClipboard() {
  * Download the current file
  */
 export function downloadFile() {
+  console.log('========== DOWNLOAD DEBUG START ==========');
+  
+  // SIMPLIFIED SENDER-SIDE APPROACH:
+  // Check for globally stored original file data first (sender side)
+  if (window.originalFileData && window.originalFileData.content) {
+    console.log('SENDER SIDE: Using globally stored original file data');
+    console.log('Original filename:', window.originalFileData.fileName);
+    console.log('Content starts with:', window.originalFileData.content.substring(0, 50) + '...');
+    
+    try {
+      // Create download with original content - guaranteed to be valid
+      const linkEl = document.createElement('a');
+      linkEl.href = window.originalFileData.content; // Direct data URL from FileReader
+      linkEl.download = window.originalFileData.fileName;
+      
+      // Append to document temporarily to trigger download
+      document.body.appendChild(linkEl);
+      linkEl.click();
+      document.body.removeChild(linkEl);
+      
+      console.log('Download initiated with original data');
+      UIManager.displayMessage(`Downloading: ${window.originalFileData.fileName}`, 'success', 3000);
+      console.log('========== DOWNLOAD DEBUG END ==========');
+      return; // Exit early - no need for complex handling
+    } catch (err) {
+      console.error('Error using global originalFileData:', err);
+      // Continue to fallback approaches
+    }
+  }
+  
   if (!sharedFile) {
     UIManager.displayMessage('No file available to download', 'error', 3000);
     return;
   }
   
-  // DETAILED DEBUG: Log the state of the shared file and its original data
-  console.log('========== DOWNLOAD DEBUG START ==========');
+  // Log the state of the shared file and its original data (for debugging)
   console.log('DOWNLOAD INITIATED - SHARED FILE STATE:', {
     hasOriginalData: !!sharedFile._originalData,
     originalContentExists: sharedFile._originalData?.content ? 'Yes' : 'No',
@@ -312,16 +341,16 @@ export function downloadFile() {
     // Get session data for possible decryption
     const sessionData = Session.getCurrentSession();
     
-    // IMPORTANT: Choose the best source of file data
+    // Choose the best source of file data
     // Create a copy to work with
     let fileToDownload;
     
-    // DEBUG decision making process
+    // Decision making process
     if (sharedFile._originalData && sharedFile._originalData.content) {
       console.log('Using _originalData for download (has valid content)');
       fileToDownload = {...sharedFile._originalData};
     } else {
-      console.log('No valid _originalData available, using sharedFile');
+      console.log('No valid _originalData available, using sharedFile directly');
       fileToDownload = {...sharedFile};
       
       // Extra check: If it appears we're on sender side but _originalData is missing
@@ -330,32 +359,31 @@ export function downloadFile() {
       }
     }
     
-    // Last resort: check if content needs decryption (even on sender side, something might have gone wrong)
+    // Last resort: check if content needs decryption (for receiver side)
     if (typeof fileToDownload.content === 'string' && fileToDownload.content.startsWith('U2FsdGVk') && sessionData?.passphrase) {
-      console.log('EMERGENCY DECRYPTION: Content appears encrypted, attempting last-minute decryption');
+      console.log('DECRYPTION: Content appears encrypted, attempting decryption');
       try {
         const decryptedContent = decryptData(fileToDownload.content, sessionData.passphrase);
         if (decryptedContent.startsWith('data:')) {
-          console.log('Last-minute decryption succeeded! Content is now a valid data URL');
+          console.log('Decryption succeeded! Content is now a valid data URL');
           fileToDownload.content = decryptedContent;
         } else {
-          console.log('Decryption produced:', decryptedContent.substring(0, 30) + '...');
+          console.log('Decryption produced non-data-URL:', decryptedContent.substring(0, 30) + '...');
         }
       } catch (decryptErr) {
-        console.error('Last-resort decryption failed:', decryptErr);
+        console.error('Decryption failed:', decryptErr);
         // Continue with what we have
       }
     }
     
-    // If content is missing or invalid (shouldn't happen with our changes)
+    // If content is missing or invalid
     if (!fileToDownload.content) {
       console.error('File content missing for download');
       UIManager.displayMessage('Cannot download: File content missing', 'error', 3000);
       return;
     }
     
-    // No need to decrypt - we should have clean content now
-    // Create download link with already decrypted/original content
+    // Create download link with content
     const linkEl = document.createElement('a');
     linkEl.href = fileToDownload.content;
     
