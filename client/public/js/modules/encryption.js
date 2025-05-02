@@ -6,6 +6,10 @@
  * using the session passphrase as the encryption key.
  */
 
+// Export essential encryption functions to window for UI and last-resort decryption
+window.decryptData = decryptData;
+window.decryptClipboardContent = decryptClipboardContent;
+
 /**
  * Encrypt data with AES using the session passphrase
  * @param {string|object} data - Data to encrypt

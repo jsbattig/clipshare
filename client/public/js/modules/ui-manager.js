@@ -176,13 +176,54 @@ export function displayFileContent(fileData) {
   emptyFileState.classList.add('hidden');
   fileContainer.classList.remove('hidden');
   
-  // Use _displayFileName if available (for source client)
-  // Otherwise use the regular fileName (which should be decrypted by content-handlers.js)
-  let displayFileName = fileData._displayFileName || fileData.fileName || 'Unknown file';
+  // PRIORITY 1: Use _displayFileName if available
+  // PRIORITY 2: Use window.originalFileData if available
+  // PRIORITY 3: Use regular fileName
+  let displayFileName;
   
-  // Log what name we're displaying
   if (fileData._displayFileName) {
-    console.log('Using original filename for display:', fileData._displayFileName);
+    displayFileName = fileData._displayFileName;
+    console.log('UI using _displayFileName for display:', displayFileName);
+  } 
+  else if (window.originalFileData && window.originalFileData.fileName) {
+    displayFileName = window.originalFileData.fileName;
+    console.log('UI using window.originalFileData.fileName for display:', displayFileName);
+  }
+  else if (fileData.fileName) {
+    // Check if the filename is still encrypted
+    if (fileData.fileName.startsWith('U2FsdGVk')) {
+      console.log('WARNING: Filename appears encrypted in UI display:', fileData.fileName.substring(0, 30) + '...');
+      displayFileName = 'Encrypted file'; // Fallback display name
+      
+      // Try to decrypt it here as a last resort
+      try {
+        const sessionImport = window.Session || null;
+        if (sessionImport) {
+          const sessionData = sessionImport.getCurrentSession();
+          if (sessionData && sessionData.passphrase) {
+            // Try to decrypt using window.decryptClipboardContent if available
+            if (window.decryptClipboardContent) {
+              const tempObj = {
+                type: 'file',
+                fileName: fileData.fileName
+              };
+              const decrypted = window.decryptClipboardContent(tempObj, sessionData.passphrase);
+              if (decrypted && decrypted.fileName) {
+                displayFileName = decrypted.fileName;
+                console.log('UI last-resort decryption successful:', displayFileName);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('UI last-resort filename decryption failed:', err);
+      }
+    } else {
+      // Not encrypted, use as is
+      displayFileName = fileData.fileName;
+    }
+  } else {
+    displayFileName = 'Unknown file';
   }
   
   // Update file info if elements exist

@@ -111,43 +111,51 @@ export function handleImageContent(imageData) {
  * @param {Object} fileData - File data object
  */
 export function handleFileContent(fileData) {
-  // IMPORTANT: Check if we're on the sender side by looking for original data
-  // This indicates we're the source of the file and have unencrypted data
-  if ((fileData._originalData && fileData._originalData.fileName) || 
-      window.originalFileData || 
-      fileData._displayFileName) {
-    console.log('Sender-side file detected - using original filename for display');
-    
-    // Create a display version with the original filename
-    const displayData = {...fileData};
+  // Create a display-friendly copy of the file data
+  const displayData = {...fileData};
+  
+  // PRIORITY 1: Check if the file has a pre-decrypted display filename
+  if (fileData._displayFileName) {
+    console.log('Using pre-defined _displayFileName for display:', fileData._displayFileName);
+    displayData.fileName = fileData._displayFileName;
+    UIManager.displayFileContent(displayData);
+    return;
+  }
+  
+  // PRIORITY 2: Check if we're on the sender side or have original data
+  if ((fileData._originalData && fileData._originalData.fileName) || window.originalFileData) {
+    console.log('Sender-side file detected or original data available');
     
     // Use the best available original filename
-    if (fileData._displayFileName) {
-      displayData.fileName = fileData._displayFileName;
-    } else if (fileData._originalData && fileData._originalData.fileName) {
+    if (fileData._originalData && fileData._originalData.fileName) {
       displayData.fileName = fileData._originalData.fileName;
     } else if (window.originalFileData && window.originalFileData.fileName) {
       displayData.fileName = window.originalFileData.fileName;
     }
     
     console.log('Using original filename for display:', displayData.fileName);
-    
-    // Pass the display-friendly data to UI (without any decryption attempt)
     UIManager.displayFileContent(displayData);
     return;
   }
   
-  // For receiver side - check if filename is encrypted (starts with the AES marker)
+  // PRIORITY 3: For receiver side - check if globalFileData exists
+  // This is used when file was received via chunks and fully decrypted on receipt
+  if (fileData.fileName && fileData.fileName.startsWith('U2FsdGVk') && window.originalFileData) {
+    console.log('Using window.originalFileData for receiver-side display');
+    displayData.fileName = window.originalFileData.fileName;
+    displayData._displayFileName = window.originalFileData.fileName;
+    UIManager.displayFileContent(displayData);
+    return;
+  }
+  
+  // PRIORITY 4: For receiver side - try to decrypt the filename
   if (fileData.fileName && fileData.fileName.startsWith('U2FsdGVk')) {
-    console.log('Handling file with encrypted filename:', fileData.fileName.substring(0, 30) + '...');
+    console.log('Attempting to decrypt filename for display:', fileData.fileName.substring(0, 30) + '...');
     
     try {
       // Get session data for decryption
       const sessionData = Session.getCurrentSession();
       if (sessionData && sessionData.passphrase) {
-        // Create a copy with decrypted filename for display
-        const displayData = {...fileData};
-        
         // Try to decrypt the filename
         const tempObj = {
           type: 'file',
@@ -157,9 +165,9 @@ export function handleFileContent(fileData) {
         const decrypted = decryptClipboardContent(tempObj, sessionData.passphrase);
         if (decrypted && decrypted.fileName) {
           displayData.fileName = decrypted.fileName;
+          displayData._displayFileName = decrypted.fileName; // Store for future use
           console.log('Successfully decrypted filename for UI display:', displayData.fileName);
           
-          // Pass the display-friendly data to UI
           UIManager.displayFileContent(displayData);
           return;
         }
@@ -170,8 +178,9 @@ export function handleFileContent(fileData) {
     }
   }
   
-  // If we get here, either the filename wasn't encrypted or decryption failed
-  UIManager.displayFileContent(fileData);
+  // FALLBACK: If we get here, use whatever filename we have
+  console.log('Using fallback filename display method');
+  UIManager.displayFileContent(displayData);
 }
 
 /**
