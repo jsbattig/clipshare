@@ -72,6 +72,7 @@ The ClipShare application has been reimplemented with a simplified approach. The
 12. **Enhanced Authentication (May 1, 2025)** - Implemented client-side encryption with AES, quorum-based verification, and session banning for potential security breaches
 13. **Authentication Promise Chain Fix (May 2, 2025)** - Fixed uncaught TypeError in authentication Promise chain by properly implementing connection status updates
 14. **Client Identification Improvement (May 2, 2025)** - Added mandatory client name field to login screen and implemented external IP detection to replace "Unknown on Unknown" with meaningful identifiers in the Connected Devices list
+15. **Client Identification Display Fix (May 2, 2025)** - Fixed data flow issue that prevented client names and external IPs from displaying correctly in the Connected Devices panel
 
 ## Next Milestone Goals
 1. ~~**Fix Authentication Storage**~~ ✅ COMPLETED - Resolved localStorage key inconsistencies
