@@ -10,6 +10,25 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Encrypted Filename Display Fix (May 2, 2025):**
+- Fixed issue where filenames appeared encrypted on the receiver side:
+  - **Root Cause Analysis**: The file content was being properly decrypted for downloads, but the UI was still showing the encrypted filename
+  - **Implementation**: 
+    1. Enhanced content-handlers.js with a prioritized approach to filename handling
+    2. Added multiple fallback mechanisms in ui-manager.js for displaying decrypted filenames
+    3. Made decryption functions globally available through window object for last-resort UI decryption
+    4. Created clear priority order for finding the best filename to display
+  - **User Experience Improvements**:
+    - Clean, readable filenames displayed throughout the application regardless of origin
+    - Same filename shown in UI and download dialog
+    - No more "encrypted file" placeholders in the interface
+  - **Technical Details**:
+    - Comprehensive decryption of filenames at multiple levels
+    - UI-level fallback decryption for maximum reliability
+    - Consistent filename display between sender and receiver
+    - Cross-module access to decryption functions
+  - **Key Insight**: Encrypted data needs to be accessed and handled consistently at all levels of the application
+
 **Unified File Processing for Reliable Downloads (May 2, 2025):**
 - Fixed download issues on receiver side with consistent storage approach:
   - **Root Cause Analysis**: Files appeared correctly but failed to download because receiver side lacked proper decrypted content storage 
