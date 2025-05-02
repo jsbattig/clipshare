@@ -581,6 +581,25 @@ io.on('connection', (socket) => {
     }
   });
   
+  // Handle request for immediate client list update (prevents waiting for ping cycle)
+  socket.on('request-client-list-update', (data) => {
+    const { sessionId } = data;
+    
+    // Verify this client is part of the session
+    if (!sessionId || sessionId !== socket.sessionId) {
+      console.warn(`Invalid client list update request from ${socket.id} for session ${sessionId}`);
+      return;
+    }
+    
+    console.log(`Client ${socket.id} requested immediate client list update for session ${sessionId}`);
+    
+    // Get the current client list and send it right away
+    const clientsList = sessionManager.getSessionClientsInfo(sessionId);
+    socket.emit('client-list-update', {
+      clients: clientsList
+    });
+  });
+  
   // Handle join request
   socket.on('request-session-join', (data, callback) => {
     const { sessionId, encryptedVerification, clientName } = data;

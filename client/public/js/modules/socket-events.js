@@ -102,8 +102,20 @@ function handleSuccessfulConnection(response) {
   
   // Handle initial client list if available
   if (response.clients && clientListCallback) {
+    console.log('Initial client list received:', response.clients);
+    
+    // Check if we have client names or if they're null
+    if (response.clients.length > 0) {
+      const hasClientNames = response.clients.some(client => 
+        client.clientName || (client.browserInfo && client.browserInfo.clientName)
+      );
+      console.log('Client list has client names:', hasClientNames);
+    }
+    
     connectedClients = response.clients;
     clientListCallback(connectedClients);
+  } else {
+    console.warn('No client list in successful connection response');
   }
 }
 

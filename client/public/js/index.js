@@ -27,7 +27,12 @@ function initializeSocket() {
   // Get persistent client ID
   const persistentClientId = AuthModule.getClientId();
   
+  // Get client name from session data
+  const sessionData = AuthModule.getSessionData();
+  const clientName = sessionData?.clientName || null;
+  
   console.log('Initializing socket with persistent client ID:', persistentClientId);
+  console.log('Including client name in socket connection:', clientName);
   
   // Initialize socket connection with proxy support
   const socket = io({
@@ -38,9 +43,10 @@ function initializeSocket() {
     timeout: CONFIG.socket.timeout,
     // Auto-detect if we're using HTTPS
     secure: window.location.protocol === 'https:',
-    // Include persistent client ID in socket handshake query params
+    // Include persistent client ID and client name in socket handshake query params
     query: {
       clientIdentity: persistentClientId,
+      clientName: clientName, // Include client name in connection
       mode: 'app',
       timestamp: Date.now()
     }
@@ -57,14 +63,17 @@ function initializeSocket() {
     console.log('Socket connected with ID:', socket.id);
     console.log('Using persistent client ID:', persistentClientId);
     
-    // Immediately after connection, send our identity information
+    // Immediately after connection, send our identity information with client name
     socket.emit('client-identity', {
       socketId: socket.id,
       persistentId: persistentClientId,
+      clientName: clientName, // Include client name in identity event
       timestamp: Date.now(),
       reconnecting: true,
       browser: navigator.userAgent
     });
+    
+    console.log('Sent client identity with name:', clientName);
   });
   
   return socket;

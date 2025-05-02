@@ -5,7 +5,7 @@
  */
 
 import { CONFIG } from './config.js';
-import { getElement } from './utils.js';
+import { getElement, getBrowserInfo } from './utils.js';
 
 // Local state
 let sessionData = null;
@@ -35,58 +35,74 @@ export function initSession(socketInstance) {
 }
 
 /**
- * Get stored session data from localStorage
- * @returns {Object|null} Session data object or null if not found/invalid
+ * Connect to a session using stored session data
+ * @param {Function} onSuccess - Success callback
+ * @param {Function} onFailure - Failure callback
+ * @param {Function} statusUpdateFn - Status update callback (optional)
  */
-export function getSessionData() {
-  const sessionDataStr = localStorage.getItem(CONFIG.storage.sessionKey);
-  if (!sessionDataStr) return null;
+export function connectToSession(onSuccess, onFailure, statusUpdateFn) {
+  const sessionData = getCurrentSession();
   
-  try {
-    return JSON.parse(sessionDataStr);
-  } catch (err) {
-    console.error('Error parsing session data:', err);
-    return null;
-  }
-}
-
-/**
- * Connect to the session using stored credentials
- * @param {Function} onSuccess - Callback for successful connection
- * @param {Function} onFailure - Callback for failed connection
- * @param {Function} displayMessage - Function to display messages to user
- */
-export function connectToSession(onSuccess, onFailure, displayMessage) {
-  if (!sessionData || !socket) {
-    if (onFailure) onFailure('No session data or socket connection');
+  if (!sessionData) {
+    if (onFailure) onFailure('No session data found');
     return;
   }
   
-  setConnectionStatus(false, displayMessage);
-  displayMessage('Connecting to session...', 'info');
-  
-  socket.emit('join-session', {
-    sessionId: sessionData.sessionId,
-    passphrase: sessionData.passphrase
-  }, (response) => {
-    if (response.success) {
-      // Connection successful
-      setConnectionStatus(true, displayMessage);
-      displayMessage('Connected to session', 'success', 3000);
-      
-      if (onSuccess) onSuccess(response);
-    } else {
-      // Connection failed
-      displayMessage('Failed to connect: ' + response.message, 'error');
-      
-      setTimeout(() => {
-        // Redirect to login
-        logout();
-      }, 3000);
-      
-      if (onFailure) onFailure(response.message);
+  try {
+    // Get most reliable socket reference
+    const socket = getActiveSocket();
+    
+    if (!socket) {
+      if (onFailure) onFailure('No active socket connection');
+      return;
     }
-  });
+    
+    // Get client name from session data
+    const clientName = sessionData.clientName || null;
+    console.log('Connecting to session with client name:', clientName);
+    
+    // Join session
+    socket.emit('join-session', {
+      sessionId: sessionData.sessionId,
+      passphrase: sessionData.passphrase,
+      clientName: clientName, // Include client name in join-session
+      browserInfo: getBrowserInfo()
+    }, (response) => {
+      if (response.success) {
+        if (statusUpdateFn) statusUpdateFn('Connected to session', 'success');
+        
+        // Set connection status
+        setConnectionStatus(true, statusUpdateFn);
+        
+        if (response.clientCount !== undefined) {
+          updateClientCount(response.clientCount);
+        }
+        
+        // Force an immediate client list update if we don't have one already
+        if (!response.clients || response.clients.length === 0) {
+          console.log('Requesting immediate client list refresh');
+          setTimeout(() => {
+            // Request client list update from server to avoid waiting for ping cycle
+            socket.emit('request-client-list-update', {
+              sessionId: sessionData.sessionId
+            });
+          }, 500); // Small delay to ensure server has processed join
+        }
+        
+        // Call success callback with response
+        if (onSuccess) onSuccess(response);
+      } else {
+        if (statusUpdateFn) statusUpdateFn(`Failed to join session: ${response.message}`, 'error');
+        setConnectionStatus(false, statusUpdateFn);
+        
+        // Call failure callback with message
+        if (onFailure) onFailure(response.message);
+      }
+    });
+  } catch (err) {
+    console.error('Error connecting to session:', err);
+    if (onFailure) onFailure('Error connecting to session: ' + err.message);
+  }
 }
 
 /**
