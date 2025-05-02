@@ -5,6 +5,7 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 
 const sessionManager = require('./session-manager');
+const { SESSION_CONSTANTS } = sessionManager;
 
 // Create Express app
 const app = express();

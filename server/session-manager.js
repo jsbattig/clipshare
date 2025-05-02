@@ -912,5 +912,7 @@ module.exports = {
   cleanupNonResponsiveClients,
   getActiveSessions,
   resetActiveClients,
-  getSessionsStatus
+  getSessionsStatus,
+  // Export constants for use in other modules
+  SESSION_CONSTANTS
 };
