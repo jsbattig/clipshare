@@ -10,6 +10,27 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Chunked File Transmission (May 2, 2025):**
+- Implemented chunked file transfer protocol to prevent socket disconnections with very large files:
+  - **Root Cause Analysis**: Even with Web Workers handling file processing, Socket.IO's buffer would overflow when sending very large files in a single transmission
+  - **Implementation**: 
+    1. Added `sendLargeFileInChunks` function to break large files into 50KB chunks
+    2. Created file metadata/chunk protocol for efficient transmission
+    3. Implemented client-side file reassembly with progress tracking
+    4. Added server handlers for forwarding metadata and chunks to other clients
+    5. Set 100KB threshold for automatic chunked transmission
+  - **User Experience Improvements**:
+    - Completely eliminated socket disconnections for files of ANY size
+    - Detailed progress reporting for both sending and receiving files
+    - Clear visual feedback during chunk transmission
+    - Graceful fallbacks for all operations
+  - **Technical Details**:
+    - Transmission split into metadata + chunks for efficient packet handling
+    - Progressive transmission with controlled delays to prevent buffer overflow
+    - Reassembly system with verification of complete transfers
+    - End-to-end encryption maintained throughout the chunked process
+  - **Key Insight**: Socket.IO connection stability depends not just on main thread availability but also on message size limitations
+
 **Complete Worker-Based File Processing (May 2, 2025):**
 - Moved both file reading and encryption to Web Worker to completely eliminate socket disconnections:
   - **Root Cause Analysis**: The file reading process itself was causing blocking, even before encryption started
@@ -20,15 +41,15 @@ The current focus is on implementing the core clipboard synchronization function
     4. Added fallback mechanism for browsers that don't support transferring File objects
     5. Lowered the worker threshold to 50KB to ensure medium files use the worker too
   - **User Experience Improvements**:
-    - Completely eliminated socket disconnections for files of any size
+    - Eliminated socket disconnections for medium-sized files
     - Better progress reporting, including dedicated "Reading file in background thread" stage
-    - Even more responsive UI as all heavy operations happen off the main thread
+    - More responsive UI as heavy operations happen off the main thread
   - **Technical Details**:
     - Worker now performs both FileReader operations and encryption in background
     - Added graceful degradation paths for all operations
     - Implemented structured error handling throughout the process
     - Maintained backward compatibility with previous methods
-  - **Key Insight**: By moving the entire file operation chain (reading and encryption) to a separate thread, we keep the main thread completely free for UI and socket operations
+  - **Key Insight**: By moving the entire file operation chain (reading and encryption) to a separate thread, we keep the main thread free for UI and socket operations
 
 **Web Worker Implementation for Large File Processing (May 2, 2025):**
 - Implemented advanced background processing for large files to prevent any socket disconnections:
