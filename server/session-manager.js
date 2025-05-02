@@ -982,6 +982,7 @@ module.exports = {
   removeClientFromSession,
   getSessionClients,
   getSessionClientsInfo,
+  getSessionInfo, // Added this missing export
   getClientCount,
   isClientActive,
   isClientAuthorized,
