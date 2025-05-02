@@ -10,6 +10,26 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Complete Worker-Based File Processing (May 2, 2025):**
+- Moved both file reading and encryption to Web Worker to completely eliminate socket disconnections:
+  - **Root Cause Analysis**: The file reading process itself was causing blocking, even before encryption started
+  - **Implementation**: 
+    1. Enhanced `file-processor.worker.js` to handle direct File objects for complete processing
+    2. Created new `processRawFileWithWorker` function to skip reading files on the main thread
+    3. Updated main file processing flow to pass files directly to the worker
+    4. Added fallback mechanism for browsers that don't support transferring File objects
+    5. Lowered the worker threshold to 50KB to ensure medium files use the worker too
+  - **User Experience Improvements**:
+    - Completely eliminated socket disconnections for files of any size
+    - Better progress reporting, including dedicated "Reading file in background thread" stage
+    - Even more responsive UI as all heavy operations happen off the main thread
+  - **Technical Details**:
+    - Worker now performs both FileReader operations and encryption in background
+    - Added graceful degradation paths for all operations
+    - Implemented structured error handling throughout the process
+    - Maintained backward compatibility with previous methods
+  - **Key Insight**: By moving the entire file operation chain (reading and encryption) to a separate thread, we keep the main thread completely free for UI and socket operations
+
 **Web Worker Implementation for Large File Processing (May 2, 2025):**
 - Implemented advanced background processing for large files to prevent any socket disconnections:
   - **Root Cause Analysis**: Even with async encryption, the main thread could still be blocked for too long with very large files
