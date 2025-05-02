@@ -345,7 +345,10 @@ io.on('connection', (socket) => {
           ...(socket.browserInfo || {}),
           name: socket.browserInfo?.name || 'Unknown',
           os: socket.browserInfo?.os || 'Unknown',
-          persistentId: socket.persistentIdentity || socket.persistentClientId
+          persistentId: socket.persistentIdentity || socket.persistentClientId,
+          // Include client name and external IP if available
+          clientName: socket.browserInfo?.clientName || null,
+          externalIp: socket.browserInfo?.externalIp || null
         },
         connectedAt: new Date().toISOString()
       };
@@ -513,7 +516,10 @@ io.on('connection', (socket) => {
         browserInfo: {
           name: "Unknown",
           os: "Unknown",
-          persistentId: socket.persistentIdentity || socket.persistentClientId
+          persistentId: socket.persistentIdentity || socket.persistentClientId,
+          // Include client name and external IP if available
+          clientName: socket.browserInfo?.clientName || null,
+          externalIp: socket.browserInfo?.externalIp || null
         },
         connectedAt: new Date().toISOString()
       };
@@ -584,7 +590,10 @@ io.on('connection', (socket) => {
           ...(socket.browserInfo || {}),
           name: socket.browserInfo?.name || 'Unknown',
           os: socket.browserInfo?.os || 'Unknown',
-          persistentId: socket.persistentIdentity || socket.persistentClientId
+          persistentId: socket.persistentIdentity || socket.persistentClientId,
+          // Include client name and external IP if available
+          clientName: socket.browserInfo?.clientName || null,
+          externalIp: socket.browserInfo?.externalIp || null
         },
         connectedAt: new Date().toISOString()
       };

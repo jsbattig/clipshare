@@ -750,6 +750,9 @@ function getSessionClientsInfo(sessionId) {
     ip: info.ip || 'Unknown',
     browserName: info.browserInfo?.name || 'Unknown',
     osName: info.browserInfo?.os || 'Unknown',
+    // Extract client name and external IP from browserInfo
+    clientName: info.browserInfo?.clientName || null,
+    externalIp: info.browserInfo?.externalIp || null,
     browserInfo: info.browserInfo || {}, // Include full browser info for client lookup
     connectedAt: info.connectedAt || new Date().toISOString(),
     lastActivity: info.lastActivity || Date.now(),
