@@ -10,6 +10,24 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Asynchronous Encryption for File Sharing (May 2, 2025):**
+- Fixed file-sharing socket disconnection issues by making encryption non-blocking:
+  - **Root Cause Analysis**: Large file encryption was blocking the main thread, causing Socket.IO to disconnect
+  - **Implementation**: 
+    1. Added `encryptDataAsync` and `encryptClipboardContentAsync` functions to encryption.js
+    2. Modified file processing to use async encryption for files larger than 50KB
+    3. Delayed UI updates (hiding drop zone) until after encryption completes
+    4. Added informative progress messages during file processing
+  - **User Experience Improvements**:
+    - No more disconnection notifications when sharing large files
+    - Visual feedback during encryption of larger files
+    - Files remain properly shared to all connected clients
+  - **Technical Benefits**:
+    - Main thread is no longer blocked during encryption
+    - Socket connections remain stable throughout file processing
+    - Better handling of ZIP archives and larger files
+  - **Key Insight**: Socket.IO has built-in monitoring that disconnects sockets when the main thread is blocked for too long
+
 **Fixed File Sharing & Socket Disconnection Issues (May 2, 2025):**
 - Fixed critical issues with file sharing and socket disconnections:
   - Previously: When files were dropped onto the sender, disconnections occurred and files weren't shared
