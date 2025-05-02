@@ -295,11 +295,57 @@ export function downloadFile() {
     return;
   }
   
+  // DETAILED DEBUG: Log the state of the shared file and its original data
+  console.log('========== DOWNLOAD DEBUG START ==========');
+  console.log('DOWNLOAD INITIATED - SHARED FILE STATE:', {
+    hasOriginalData: !!sharedFile._originalData,
+    originalContentExists: sharedFile._originalData?.content ? 'Yes' : 'No',
+    originalFileName: sharedFile._originalData?.fileName || 'None',
+    sharedFileName: sharedFile.fileName || 'None',
+    contentStart: (sharedFile.content || '').substring(0, 30) + '...',
+    contentIsEncrypted: (sharedFile.content || '').startsWith('U2FsdGVk'),
+    originalContentIsDataUrl: sharedFile._originalData?.content?.startsWith('data:') || false,
+    currentContentIsDataUrl: sharedFile.content?.startsWith('data:') || false
+  });
+  
   try {
+    // Get session data for possible decryption
+    const sessionData = Session.getCurrentSession();
+    
     // IMPORTANT: Choose the best source of file data
-    // 1. For sender: Use _originalData which contains the unencrypted original
-    // 2. For receiver: Use the already decrypted data stored in sharedFile
-    const fileToDownload = sharedFile._originalData || sharedFile;
+    // Create a copy to work with
+    let fileToDownload;
+    
+    // DEBUG decision making process
+    if (sharedFile._originalData && sharedFile._originalData.content) {
+      console.log('Using _originalData for download (has valid content)');
+      fileToDownload = {...sharedFile._originalData};
+    } else {
+      console.log('No valid _originalData available, using sharedFile');
+      fileToDownload = {...sharedFile};
+      
+      // Extra check: If it appears we're on sender side but _originalData is missing
+      if (sharedFile._displayFileName && !sharedFile._originalData) {
+        console.log('WARNING: This appears to be sender (has _displayFileName) but _originalData is missing!');
+      }
+    }
+    
+    // Last resort: check if content needs decryption (even on sender side, something might have gone wrong)
+    if (typeof fileToDownload.content === 'string' && fileToDownload.content.startsWith('U2FsdGVk') && sessionData?.passphrase) {
+      console.log('EMERGENCY DECRYPTION: Content appears encrypted, attempting last-minute decryption');
+      try {
+        const decryptedContent = decryptData(fileToDownload.content, sessionData.passphrase);
+        if (decryptedContent.startsWith('data:')) {
+          console.log('Last-minute decryption succeeded! Content is now a valid data URL');
+          fileToDownload.content = decryptedContent;
+        } else {
+          console.log('Decryption produced:', decryptedContent.substring(0, 30) + '...');
+        }
+      } catch (decryptErr) {
+        console.error('Last-resort decryption failed:', decryptErr);
+        // Continue with what we have
+      }
+    }
     
     // If content is missing or invalid (shouldn't happen with our changes)
     if (!fileToDownload.content) {
@@ -321,6 +367,23 @@ export function downloadFile() {
     console.log('- Filename:', downloadFilename);
     console.log('- Content type:', typeof fileToDownload.content);
     console.log('- Content starts with:', fileToDownload.content.substring(0, 50) + '...');
+    console.log('- Link href starts with:', linkEl.href.substring(0, 50) + '...');
+    
+    // Last check - if href still looks encrypted, one more attempt
+    if (linkEl.href.startsWith('U2FsdGVk') && sessionData?.passphrase) {
+      console.log('FINAL CHECK: href is still encrypted, making one final attempt');
+      try {
+        const finalDecrypted = decryptData(linkEl.href, sessionData.passphrase);
+        if (finalDecrypted.startsWith('data:')) {
+          console.log('Final decryption succeeded, replacing href');
+          linkEl.href = finalDecrypted;
+        }
+      } catch (e) {
+        console.error('Final decryption attempt failed:', e);
+      }
+    }
+    
+    console.log('========== DOWNLOAD DEBUG END ==========');
     
     // Append to document temporarily to trigger download
     document.body.appendChild(linkEl);
@@ -365,7 +428,33 @@ export function setSharedFile(fileData) {
       console.log('Warning: Filename appears to be encrypted:', fileData.fileName.substring(0, 30) + '...');
     }
   }
+  
+  // Check if we have original data that should be preserved for downloads
+  if (fileData && fileData._originalData) {
+    console.log('IMPORTANT: SharedFile has _originalData, will be used for downloads');
+    console.log('Original data filename:', fileData._originalData.fileName);
+    console.log('Original data content starts with:', 
+      fileData._originalData.content?.substring(0, 30) + '...');
+  }
 }
+
+// Export ContentHandlers to window for global access
+// This allows direct access from file-operations.js
+window.ContentHandlers = {
+  setSharedFile,
+  getSharedFile,
+  downloadFile,
+  getCurrentContentState,
+  updateClipboardContent,
+  copyToClipboard,
+  handleTextContent,
+  handleImageContent,
+  handleFileContent,
+  getDisplayFileData
+};
+
+// Log that the global export is ready
+console.log('ContentHandlers exported to window object for global access');
 
 /**
  * Ensure file data has decrypted filename for display

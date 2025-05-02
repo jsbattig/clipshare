@@ -88,18 +88,55 @@ export function handleSingleFileUpload(file, onFileProcessed) {
           
           // CRITICAL: Store a complete copy of the original file data
           // before encryption for local use (download, display)
-          const originalFileData = {...fileData};
+          const originalFileData = {
+            type: 'file',
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type || getMimeTypeFromExtension(file.name),
+            content: e.target.result,  // This is the raw data URL from FileReader
+            timestamp: Date.now()
+          };
           
-          // Encrypt the file data for transmission
-          const encryptedFileData = encryptClipboardContent(fileData, sessionData.passphrase);
+          // Log the original file data being stored
+          console.log('ORIGINAL FILE DATA BEING STORED:', {
+            fileName: originalFileData.fileName,
+            fileSize: originalFileData.fileSize,
+            contentStart: originalFileData.content.substring(0, 30) + '...',
+            contentIsDataUrl: originalFileData.content.startsWith('data:')
+          });
           
-          // IMPORTANT: Store reference to the original unencrypted data
-          // with the encrypted data for local operations
+          // Encrypt the file data for transmission (using a copy to avoid modifying original)
+          const encryptedFileData = encryptClipboardContent({...fileData}, sessionData.passphrase);
+          
+          // Store the original unencrypted data in the encrypted data
+          // Using direct assignment to ensure reference is preserved
           encryptedFileData._originalData = originalFileData;
           
-          // Also preserve original filename for display 
-          // (backwards compatibility with existing code)
+          // Also preserve original filename for display
           encryptedFileData._displayFileName = file.name;
+          
+          // IMMEDIATE VERIFICATION OF ORIGINAL DATA
+          if (encryptedFileData._originalData && 
+              encryptedFileData._originalData.content && 
+              encryptedFileData._originalData.content.startsWith('data:')) {
+            console.log('✓ VERIFIED: Original data successfully stored and is a valid data URL');
+          } else {
+            console.error('❌ WARNING: Original data verification failed!', {
+              hasOriginalData: !!encryptedFileData._originalData,
+              hasContent: encryptedFileData._originalData ? !!encryptedFileData._originalData.content : false,
+              contentStart: encryptedFileData._originalData?.content?.substring(0, 30) + '...' || 'none',
+              isDataUrl: encryptedFileData._originalData?.content?.startsWith('data:')
+            });
+          }
+          
+          // DIRECTLY STORE A REFERENCE TO THE SHARED FILE
+          // This bypasses any potential reference loss in the callback chain
+          // Import needed at the top: import { setSharedFile } from './content-handlers.js';
+          if (typeof window.ContentHandlers !== 'undefined' && 
+              typeof window.ContentHandlers.setSharedFile === 'function') {
+            console.log('Directly setting shared file with original data in ContentHandlers');
+            window.ContentHandlers.setSharedFile(encryptedFileData);
+          }
           
           onFileProcessed(encryptedFileData);
           UIManager.displayMessage(`File "${file.name}" encrypted and processed`, 'success', 3000);
