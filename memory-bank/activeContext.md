@@ -10,6 +10,21 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Unified Download Architecture (May 2, 2025):**
+- Completely refactored file download functionality to use a single unified approach:
+  - Removed duplicate download methods across modules
+  - Centralized all download functionality in ContentHandlers.downloadFile()
+  - Created a prioritized system to select the best available file data:
+    1. First tries globally stored original file data (sender side)
+    2. Then checks for attached original data on the shared file
+    3. Next looks for direct data URLs in the current shared file
+    4. Finally attempts decryption as a last resort
+  - Made all file paths use the robust Blob-based download method
+  - Updated all event handlers to use the unified download function
+  - Improved error reporting and validation throughout the process
+  - Added detailed logging to trace the download process
+- Key insight: Having a single download code path simplifies maintenance and ensures consistent behavior
+
 **Blob-Based Download Fix (May 2, 2025):**
 - Fixed persistent download issues showing "Network issue" error in browser:
   - Identified root cause: Direct use of data URLs in href attributes doesn't work well for large files
