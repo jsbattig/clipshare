@@ -10,6 +10,20 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Fixed Encrypted Filename Display and Download Issues (May 2, 2025):**
+- Fixed multiple issues with file display and download functionality:
+  - Fixed source-side issue showing encrypted filenames instead of original filenames
+  - Fixed download mechanism that was failing with "network issues"
+  - Improved transparency of encryption/decryption process with detailed logging
+- Implemented a comprehensive solution:
+  - Added `_displayFileName` to preserve original filename for source clients
+  - Fixed decryption flow to handle entire encrypted strings instead of trying to parse encrypted data
+  - Modified download process to properly decrypt content before creating download links
+  - Enhanced the UI to dynamically use available filenames (original or decrypted)
+  - Fixed notifications to always show human-readable filenames
+- Root cause identified: content being encrypted as a whole string must be decrypted as a whole string
+- Maintained security while improving user experience - encryption still happens for all content in transit
+
 **Fixed File Download with Encryption (May 2, 2025):**
 - Fixed critical issue where file downloads were failing due to encrypted content not being decrypted
 - Enhanced download functionality to properly decrypt both the filename and file content before download
