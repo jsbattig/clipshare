@@ -44,8 +44,35 @@ export function handleFileDrop(event, onSingleFile, onMultipleFiles) {
   }
 }
 
+// Web Worker instance
+let fileWorker = null;
+
 /**
- * Process a single file upload with non-blocking async encryption
+ * Get or create Web Worker for file processing
+ * @returns {Worker} Web Worker instance
+ */
+function getFileWorker() {
+  if (!fileWorker) {
+    try {
+      fileWorker = new Worker('js/workers/file-processor.worker.js');
+      console.log('File processor worker created');
+      
+      // Set up global error handler
+      fileWorker.onerror = function(event) {
+        console.error('File worker error:', event);
+        UIManager.displayMessage('Error in file processing', 'error', 5000);
+      };
+    } catch (err) {
+      console.error('Failed to create Web Worker:', err);
+      // Return null to indicate worker creation failed
+      return null;
+    }
+  }
+  return fileWorker;
+}
+
+/**
+ * Process a single file upload with Web Worker for large files
  * @param {File} file - File object from drop event
  * @param {Function} onFileProcessed - Callback for when file is processed
  */
@@ -62,133 +89,33 @@ export async function handleSingleFileUpload(file, onFileProcessed) {
   // Mark transfer in progress
   fileTransferInProgress = true;
   
-  // Show user that processing is happening
-  UIManager.displayMessage(`Reading file: ${file.name}...`, 'info', 0);
-  
   try {
-    // Wrap FileReader in a Promise for cleaner async code
+    // Show initial processing message
+    UIManager.displayMessage(`Reading file: ${file.name}...`, 'info', 0);
+    
+    // Read file as data URL
     const fileContent = await readFileAsDataURL(file);
     
-    // Create file data object
-    const fileData = {
-      type: 'file',
+    console.log(`File read complete: ${file.name}, size: ${formatFileSize(file.size)}`);
+    UIManager.displayMessage(`Processing file: ${file.name}...`, 'info', 0);
+    
+    // Store original file data globally for download
+    // This ensures it's always accessible even if references are lost
+    window.originalFileData = {
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type || getMimeTypeFromExtension(file.name),
       content: fileContent,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      isOriginal: true
     };
     
-    console.log(`File read complete: ${file.name}, size: ${formatFileSize(file.size)}`);
-    
-    // DO NOT hide the drop zone yet - wait until encryption is complete
-    // We'll use the drop zone as a visual indicator that work is still happening
-    
-    // Process the file data
-    if (onFileProcessed) {
-      // Always encrypt the file data before sending
-      const sessionData = Session.getCurrentSession();
-      if (sessionData && sessionData.passphrase) {
-        try {
-          // For large files, make sure the user knows encryption is happening
-          if (file.size > 100000) {
-            UIManager.displayMessage(`Encrypting file "${file.name}"...`, 'info', 0);
-          }
-          
-          console.log(`Starting encryption for file '${file.name}'`);
-          
-          // CRITICAL: Store a complete copy of the original file data
-          // before encryption for local use (download, display)
-          const originalFileData = {
-            type: 'file',
-            fileName: file.name,
-            fileSize: file.size,
-            fileType: file.type || getMimeTypeFromExtension(file.name),
-            content: fileContent,  // This is the raw data URL from FileReader
-            timestamp: Date.now()
-          };
-          
-          // SIMPLIFIED APPROACH: Store original file data globally
-          // This ensures it's always accessible even if references are lost
-          window.originalFileData = {
-            fileName: file.name,
-            fileSize: file.size,
-            fileType: file.type || getMimeTypeFromExtension(file.name),
-            content: fileContent,
-            timestamp: Date.now(),
-            isOriginal: true  // Flag to identify as original data
-          };
-          
-          console.log('ORIGINAL FILE DATA STORED GLOBALLY:', {
-            fileName: window.originalFileData.fileName,
-            fileSize: window.originalFileData.fileSize,
-            contentStart: window.originalFileData.content.substring(0, 30) + '...',
-            contentIsDataUrl: window.originalFileData.content.startsWith('data:')
-          });
-          
-          // USE ASYNC ENCRYPTION FOR LARGE FILES to prevent socket disconnections
-          // This is a critical change - use async version for files > 50KB
-          let encryptedFileData;
-          if (file.size > 50000) {
-            console.log('Using async encryption for large file');
-            encryptedFileData = await encryptClipboardContentAsync({...fileData}, sessionData.passphrase);
-            console.log('Async encryption complete');
-          } else {
-            // Small files can use synchronous encryption
-            encryptedFileData = encryptClipboardContent({...fileData}, sessionData.passphrase);
-          }
-          
-          // Now that encryption is done, we can hide the drop zone
-          UIManager.hideDropZone();
-          
-          // Also preserve original data reference as before for backward compatibility
-          encryptedFileData._originalData = originalFileData;
-          
-          // Also preserve original filename for display
-          encryptedFileData._displayFileName = file.name;
-          
-          // IMMEDIATE VERIFICATION OF ORIGINAL DATA
-          if (encryptedFileData._originalData && 
-              encryptedFileData._originalData.content && 
-              encryptedFileData._originalData.content.startsWith('data:')) {
-            console.log('✓ VERIFIED: Original data successfully stored and is a valid data URL');
-          } else {
-            console.error('❌ WARNING: Original data verification failed!', {
-              hasOriginalData: !!encryptedFileData._originalData,
-              hasContent: encryptedFileData._originalData ? !!encryptedFileData._originalData.content : false,
-              contentStart: encryptedFileData._originalData?.content?.substring(0, 30) + '...' || 'none',
-              isDataUrl: encryptedFileData._originalData?.content?.startsWith('data:')
-            });
-          }
-          
-          // DIRECTLY STORE A REFERENCE TO THE SHARED FILE
-          // This bypasses any potential reference loss in the callback chain
-          if (typeof window.ContentHandlers !== 'undefined' && 
-              typeof window.ContentHandlers.setSharedFile === 'function') {
-            console.log('Directly setting shared file with original data in ContentHandlers');
-            window.ContentHandlers.setSharedFile(encryptedFileData);
-          }
-          
-          // Call the callback with processed data
-          onFileProcessed(encryptedFileData);
-          UIManager.displayMessage(`File "${file.name}" encrypted and processed`, 'success', 3000);
-        } catch (error) {
-          console.error('Failed to encrypt file:', error);
-          UIManager.displayMessage('Failed to encrypt file: ' + error.message, 'error', 5000);
-          UIManager.hideDropZone();
-          fileTransferInProgress = false;
-          return;
-        }
-      } else {
-        console.error('No session passphrase available for encryption');
-        UIManager.displayMessage('Cannot send file: Missing encryption key', 'error', 5000);
-        UIManager.hideDropZone();
-        fileTransferInProgress = false;
-        return;
-      }
+    // LARGE FILES: Use Web Worker for encryption
+    // Small files: Use async encryption method
+    if (file.size > 500000) { // 500KB threshold for using worker
+      await processLargeFileWithWorker(file, fileContent, onFileProcessed);
     } else {
-      // No callback provided, hide the drop zone
-      UIManager.hideDropZone();
+      await processFileWithAsyncEncryption(file, fileContent, onFileProcessed);
     }
     
     // Reset transfer status
@@ -199,6 +126,195 @@ export async function handleSingleFileUpload(file, onFileProcessed) {
     UIManager.displayMessage(`Error processing file: ${error.message}`, 'error', 5000);
     UIManager.hideDropZone();
     fileTransferInProgress = false;
+  }
+}
+
+/**
+ * Process large file with Web Worker to prevent socket disconnections
+ * @param {File} file - File object
+ * @param {string} fileContent - File content as data URL
+ * @param {Function} onFileProcessed - Callback for completed processing
+ */
+async function processLargeFileWithWorker(file, fileContent, onFileProcessed) {
+  console.log('Processing large file with Web Worker:', file.name);
+  
+  // Get session data for encryption
+  const sessionData = Session.getCurrentSession();
+  if (!sessionData || !sessionData.passphrase) {
+    console.error('No session passphrase available for encryption');
+    UIManager.displayMessage('Cannot send file: Missing encryption key', 'error', 5000);
+    UIManager.hideDropZone();
+    return;
+  }
+  
+  // Show worker processing message
+  UIManager.displayMessage(`Encrypting large file in background: ${file.name}`, 'info', 0);
+  
+  return new Promise((resolve, reject) => {
+    // Get or create worker
+    const worker = getFileWorker();
+    
+    if (!worker) {
+      // Web Workers not supported - fall back to async encryption
+      UIManager.displayMessage('Web Workers not supported - using fallback method', 'info', 3000);
+      processFileWithAsyncEncryption(file, fileContent, onFileProcessed)
+        .then(resolve)
+        .catch(reject);
+      return;
+    }
+    
+    // Set up message handler for this specific file
+    worker.onmessage = function(e) {
+      const response = e.data;
+      
+      if (response.status === 'progress') {
+        // Update progress message
+        UIManager.displayMessage(
+          `Processing file: ${response.progress}% - ${response.message}`, 
+          'info', 
+          0
+        );
+      } 
+      else if (response.status === 'complete') {
+        console.log('Web Worker completed file processing');
+        
+        // Create the complete processed file data
+        const encryptedFileData = response.encryptedData;
+        
+        // Add original data reference for download
+        encryptedFileData._originalData = {...window.originalFileData};
+        encryptedFileData._displayFileName = file.name;
+        
+        // Hide the drop zone now that processing is complete
+        UIManager.hideDropZone();
+        
+        // Store in content handlers
+        if (typeof window.ContentHandlers !== 'undefined' && 
+            typeof window.ContentHandlers.setSharedFile === 'function') {
+          console.log('Directly setting shared file with original data in ContentHandlers');
+          window.ContentHandlers.setSharedFile(encryptedFileData);
+        }
+        
+        // Call the callback
+        if (onFileProcessed) {
+          onFileProcessed(encryptedFileData);
+        }
+        
+        UIManager.displayMessage(`File "${file.name}" processed in background thread`, 'success', 3000);
+        resolve();
+      } 
+      else if (response.status === 'error') {
+        console.error('Worker reported error:', response.error);
+        UIManager.displayMessage('Error processing file: ' + response.error, 'error', 5000);
+        UIManager.hideDropZone();
+        reject(new Error(response.error));
+      }
+    };
+    
+    // Send file to worker for processing
+    worker.postMessage({
+      action: 'process',
+      fileData: fileContent,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type || getMimeTypeFromExtension(file.name),
+      passphrase: sessionData.passphrase
+    });
+    
+    console.log('File sent to worker for processing');
+  });
+}
+
+/**
+ * Process file with async encryption for medium-sized files
+ * @param {File} file - File object
+ * @param {string} fileContent - File content as data URL
+ * @param {Function} onFileProcessed - Callback for completed processing
+ */
+async function processFileWithAsyncEncryption(file, fileContent, onFileProcessed) {
+  console.log('Processing file with async encryption:', file.name);
+  
+  // Show encryption message for larger files
+  if (file.size > 100000) {
+    UIManager.displayMessage(`Encrypting file "${file.name}"...`, 'info', 0);
+  }
+  
+  // Get session data for encryption
+  const sessionData = Session.getCurrentSession();
+  if (!sessionData || !sessionData.passphrase) {
+    console.error('No session passphrase available for encryption');
+    UIManager.displayMessage('Cannot send file: Missing encryption key', 'error', 5000);
+    UIManager.hideDropZone();
+    return;
+  }
+  
+  try {
+    // Create file data object to encrypt
+    const fileData = {
+      type: 'file',
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type || getMimeTypeFromExtension(file.name),
+      content: fileContent,
+      timestamp: Date.now()
+    };
+    
+    // Create original file data for reference
+    const originalFileData = {
+      type: 'file',
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type || getMimeTypeFromExtension(file.name),
+      content: fileContent,
+      timestamp: Date.now()
+    };
+    
+    console.log(`Starting async encryption for file '${file.name}'`);
+    
+    // USE ASYNC ENCRYPTION (using our previously implemented function)
+    const encryptedFileData = await encryptClipboardContentAsync({...fileData}, sessionData.passphrase);
+    console.log('Async encryption complete');
+    
+    // Add original data references
+    encryptedFileData._originalData = originalFileData;
+    encryptedFileData._displayFileName = file.name;
+    
+    // Hide drop zone after encryption
+    UIManager.hideDropZone();
+    
+    // Store in content handlers
+    if (typeof window.ContentHandlers !== 'undefined' && 
+        typeof window.ContentHandlers.setSharedFile === 'function') {
+      console.log('Directly setting shared file with original data in ContentHandlers');
+      window.ContentHandlers.setSharedFile(encryptedFileData);
+    }
+    
+    // IMMEDIATE VERIFICATION OF ORIGINAL DATA
+    if (encryptedFileData._originalData && 
+        encryptedFileData._originalData.content && 
+        encryptedFileData._originalData.content.startsWith('data:')) {
+      console.log('✓ VERIFIED: Original data successfully stored and is a valid data URL');
+    } else {
+      console.error('❌ WARNING: Original data verification failed!', {
+        hasOriginalData: !!encryptedFileData._originalData,
+        hasContent: encryptedFileData._originalData ? !!encryptedFileData._originalData.content : false,
+        contentStart: encryptedFileData._originalData?.content?.substring(0, 30) + '...' || 'none',
+        isDataUrl: encryptedFileData._originalData?.content?.startsWith('data:')
+      });
+    }
+    
+    // Call the callback with processed data
+    if (onFileProcessed) {
+      onFileProcessed(encryptedFileData);
+    }
+    
+    UIManager.displayMessage(`File "${file.name}" encrypted and processed`, 'success', 3000);
+    
+  } catch (error) {
+    console.error('Failed to encrypt file:', error);
+    UIManager.displayMessage('Failed to encrypt file: ' + error.message, 'error', 5000);
+    UIManager.hideDropZone();
+    throw error;
   }
 }
 
@@ -347,22 +463,7 @@ export async function createAndShareZip(files, onZipCreated) {
         try {
           console.log('Encrypting ZIP archive before sending');
           
-          // ZIP archives can be large - use async encryption to prevent socket disconnections
-          let encryptedZipData;
-          if (fileData.fileSize > 50000) {
-            console.log('Using async encryption for large ZIP archive');
-            encryptedZipData = await encryptClipboardContentAsync(fileData, sessionData.passphrase);
-            console.log('Async ZIP encryption complete');
-          } else {
-            // Small archives can use synchronous encryption
-            encryptedZipData = encryptClipboardContent(fileData, sessionData.passphrase);
-          }
-          
-          // Store original data for download
-          encryptedZipData._originalData = {...fileData};
-          encryptedZipData._displayFileName = fileData.fileName;
-          
-          // Update global reference
+          // Store original data globally for download
           window.originalFileData = {
             fileName: fileData.fileName,
             fileSize: fileData.fileSize,
@@ -372,8 +473,98 @@ export async function createAndShareZip(files, onZipCreated) {
             isOriginal: true
           };
           
-          onZipCreated(encryptedZipData);
-          UIManager.displayMessage(`ZIP archive encrypted and ready to share`, 'success', 3000);
+          // ZIP archives are usually large - use Web Worker for larger ZIPs
+          // and async encryption for smaller ones
+          if (fileData.fileSize > 500000) { // 500KB threshold for using worker
+            console.log('Using Web Worker for large ZIP archive encryption');
+            try {
+              // Process ZIP with worker
+              const worker = getFileWorker();
+              
+              if (!worker) {
+                // Web Workers not supported - fall back to async encryption
+                UIManager.displayMessage('Web Workers not supported - using fallback method', 'info', 3000);
+                
+                // Use async encryption as fallback
+                const encryptedZipData = await encryptClipboardContentAsync(fileData, sessionData.passphrase);
+                
+                // Set original data references
+                encryptedZipData._originalData = {...fileData};
+                encryptedZipData._displayFileName = fileData.fileName;
+                
+                // Call the callback
+                onZipCreated(encryptedZipData);
+                UIManager.displayMessage(`ZIP archive encrypted and ready to share`, 'success', 3000);
+              } else {
+                // Use worker for processing
+                await new Promise((resolve, reject) => {
+                  // Set up message handler
+                  worker.onmessage = function(e) {
+                    const response = e.data;
+                    
+                    if (response.status === 'progress') {
+                      // Update progress message
+                      UIManager.displayMessage(
+                        `Processing ZIP: ${response.progress}% - ${response.message}`, 
+                        'info', 
+                        0
+                      );
+                    } 
+                    else if (response.status === 'complete') {
+                      console.log('Web Worker completed ZIP processing');
+                      
+                      // Create the complete processed ZIP data
+                      const encryptedZipData = response.encryptedData;
+                      
+                      // Add original data reference for download
+                      encryptedZipData._originalData = {...window.originalFileData};
+                      encryptedZipData._displayFileName = fileData.fileName;
+                      
+                      // Call the callback
+                      onZipCreated(encryptedZipData);
+                      
+                      UIManager.displayMessage(`ZIP archive processed and ready to share`, 'success', 3000);
+                      resolve();
+                    } 
+                    else if (response.status === 'error') {
+                      console.error('Worker reported error:', response.error);
+                      UIManager.displayMessage('Error processing ZIP: ' + response.error, 'error', 5000);
+                      reject(new Error(response.error));
+                    }
+                  };
+                  
+                  // Send ZIP to worker for processing
+                  worker.postMessage({
+                    action: 'process',
+                    fileData: fileData.content,
+                    fileName: fileData.fileName,
+                    fileSize: fileData.fileSize,
+                    fileType: fileData.fileType,
+                    passphrase: sessionData.passphrase
+                  });
+                  
+                  console.log('ZIP sent to worker for processing');
+                });
+              }
+            } catch (error) {
+              console.error('Error with ZIP worker processing:', error);
+              UIManager.displayMessage('Error processing ZIP: ' + error.message, 'error', 5000);
+              throw error;
+            }
+          } else {
+            // Use async encryption for smaller ZIP files
+            console.log('Using async encryption for ZIP archive');
+            const encryptedZipData = await encryptClipboardContentAsync(fileData, sessionData.passphrase);
+            console.log('Async ZIP encryption complete');
+            
+            // Add original data references
+            encryptedZipData._originalData = {...fileData};
+            encryptedZipData._displayFileName = fileData.fileName;
+            
+            // Call the callback
+            onZipCreated(encryptedZipData);
+            UIManager.displayMessage(`ZIP archive encrypted and ready to share`, 'success', 3000);
+          }
         } catch (error) {
           console.error('Failed to encrypt ZIP archive:', error);
           UIManager.displayMessage('Failed to encrypt ZIP archive.', 'error', 5000);
