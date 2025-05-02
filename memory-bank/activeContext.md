@@ -10,6 +10,26 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Web Worker Implementation for Large File Processing (May 2, 2025):**
+- Implemented advanced background processing for large files to prevent any socket disconnections:
+  - **Root Cause Analysis**: Even with async encryption, the main thread could still be blocked for too long with very large files
+  - **Implementation**: 
+    1. Created dedicated `file-processor.worker.js` Web Worker for heavy encryption operations
+    2. Modified file processing to use Web Workers for files larger than 500KB
+    3. Used async encryption as fallback for smaller files and when Web Workers aren't available
+    4. Implemented detailed progress reporting from the worker to the main thread
+    5. Added graceful error handling and fallback mechanisms
+  - **User Experience Improvements**:
+    - Reliable processing of files of any size without disconnections
+    - Detailed progress percentage and stage reporting during encryption
+    - Completely responsive UI during large file encryption
+  - **Technical Details**:
+    - Web Worker runs in a separate thread, completely isolating heavy computation
+    - Communication via structured message passing between worker and main thread
+    - Automatic fallback to previous async method when needed
+    - ZIP archive handling also converted to use Web Workers for large files
+  - **Key Insight**: By moving encryption completely off the main thread, we ensure socket connections remain stable regardless of file size
+
 **Asynchronous Encryption for File Sharing (May 2, 2025):**
 - Fixed file-sharing socket disconnection issues by making encryption non-blocking:
   - **Root Cause Analysis**: Large file encryption was blocking the main thread, causing Socket.IO to disconnect
@@ -19,7 +39,7 @@ The current focus is on implementing the core clipboard synchronization function
     3. Delayed UI updates (hiding drop zone) until after encryption completes
     4. Added informative progress messages during file processing
   - **User Experience Improvements**:
-    - No more disconnection notifications when sharing large files
+    - No more disconnection notifications when sharing small/medium files
     - Visual feedback during encryption of larger files
     - Files remain properly shared to all connected clients
   - **Technical Benefits**:
