@@ -67,6 +67,28 @@ function getSocketConnection() {
     console.log('Disconnected from server');
   });
   
+  // Handle server ping requests to prevent being marked inactive
+  socket.on('ping-clients', (data) => {
+    console.log('Received server ping during authentication');
+    
+    // Get current session ID if available
+    const sessionId = socket.sessionId;
+    
+    // If we have a sessionId (might be stored during join request)
+    if (sessionId) {
+      console.log(`Responding to ping for session ${sessionId}`);
+      
+      // Send ping response
+      socket.emit('client-ping-response', {
+        sessionId: sessionId,
+        timestamp: Date.now(),
+        clientId: socket.id
+      });
+    } else {
+      console.log('No session ID available yet, cannot respond to ping');
+    }
+  });
+  
   // Store socket for reuse
   window.appSocket = socket;
   return socket;

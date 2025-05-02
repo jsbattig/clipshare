@@ -346,12 +346,19 @@ function finalizeVerification(sessionId, clientId, approved) {
     });
   }
   
-  // If approved, add to authorized clients
+  // If approved, add to authorized clients and mark as active immediately
   if (approved && sessions[sessionId]) {
     if (!sessions[sessionId].authorizedClients) {
       sessions[sessionId].authorizedClients = new Set();
     }
     sessions[sessionId].authorizedClients.add(clientId);
+    
+    // Mark as active immediately to prevent early cleanup
+    recordPingResponse(sessionId, clientId);
+    
+    if (SESSION_CONSTANTS.DEBUG_MODE) {
+      console.log(`[DEBUG] Client ${clientId} added to authorized clients and marked as active`);
+    }
   }
   
   // Clean up
@@ -851,7 +858,27 @@ function cleanupNonResponsiveClients(sessionId) {
   const inactiveClients = sessions[sessionId].clients.filter(clientId => {
     // Check if client has a recent ping response
     const lastPing = sessions[sessionId].lastPingResponse[clientId] || 0;
-    return (currentTime - lastPing) > PING_TIMEOUT;
+    
+    // Check when the client was added
+    const connectionTime = sessions[sessionId].clientsInfo?.[clientId]?.connectedAt || null;
+    const clientInfo = sessions[sessionId].clientsInfo?.[clientId];
+    
+    // Give new clients a 30-second grace period before cleanup
+    const isNewClient = connectionTime && (currentTime - new Date(connectionTime).getTime() < 30000);
+    
+    // Debug information
+    if (SESSION_CONSTANTS.DEBUG_MODE) {
+      console.log(`Client ${clientId} status check:
+        - Last ping: ${new Date(lastPing).toISOString()} (${currentTime - lastPing}ms ago)
+        - Connected at: ${connectionTime || 'unknown'}
+        - Is new: ${isNewClient ? 'yes' : 'no'}
+        - Is authorized: ${sessions[sessionId].authorizedClients?.has(clientId) ? 'yes' : 'no'}`);
+    }
+    
+    // Only mark as inactive if:
+    // 1. Not a new client (grace period)
+    // 2. No recent ping response
+    return !isNewClient && (currentTime - lastPing) > PING_TIMEOUT;
   });
   
   console.log(`Found ${inactiveClients.length} inactive clients`);
