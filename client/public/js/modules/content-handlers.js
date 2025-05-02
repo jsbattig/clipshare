@@ -111,6 +111,39 @@ export function handleImageContent(imageData) {
  * @param {Object} fileData - File data object
  */
 export function handleFileContent(fileData) {
+  // Check if filename is encrypted (starts with the AES marker)
+  if (fileData.fileName && fileData.fileName.startsWith('U2FsdGVk')) {
+    console.log('Handling file with encrypted filename:', fileData.fileName.substring(0, 30) + '...');
+    
+    try {
+      // Get session data for decryption
+      const sessionData = Session.getCurrentSession();
+      if (sessionData && sessionData.passphrase) {
+        // Create a copy with decrypted filename for display
+        const displayData = {...fileData};
+        
+        // Try to decrypt the filename
+        const tempObj = {
+          type: 'file',
+          fileName: fileData.fileName
+        };
+        
+        const decrypted = decryptClipboardContent(tempObj, sessionData.passphrase);
+        if (decrypted && decrypted.fileName) {
+          displayData.fileName = decrypted.fileName;
+          console.log('Successfully decrypted filename for UI display:', displayData.fileName);
+          
+          // Pass the display-friendly data to UI
+          UIManager.displayFileContent(displayData);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Error decrypting filename for display:', err);
+    }
+  }
+  
+  // If we get here, either the filename wasn't encrypted or decryption failed
   UIManager.displayFileContent(fileData);
 }
 
@@ -301,5 +334,57 @@ export function getSharedFile() {
  * @param {Object} fileData - File data to set as shared file
  */
 export function setSharedFile(fileData) {
+  // Store the file data
   sharedFile = fileData;
+  
+  // For debugging encrypted filenames
+  if (fileData && fileData.fileName) {
+    console.log('Setting shared file with fileName:', fileData.fileName);
+    if (fileData.fileName.startsWith('U2FsdGVk')) {
+      console.log('Warning: Filename appears to be encrypted:', fileData.fileName.substring(0, 30) + '...');
+    }
+  }
+}
+
+/**
+ * Ensure file data has decrypted filename for display
+ * @param {Object} fileData - File data object that might have encrypted fields
+ * @param {string} [defaultName='Unknown file'] - Default filename if decryption fails
+ * @returns {Object} File data with display-friendly properties
+ */
+export function getDisplayFileData(fileData, defaultName = 'Unknown file') {
+  if (!fileData) return null;
+  
+  // Create a copy for display purposes
+  const displayData = {...fileData};
+  
+  // If the filename looks encrypted (starts with the AES marker), try to decrypt it
+  if (displayData.fileName && displayData.fileName.startsWith('U2FsdGVk')) {
+    try {
+      // Get session data for decryption
+      const sessionData = Session.getCurrentSession();
+      if (sessionData && sessionData.passphrase) {
+        console.log('Attempting to decrypt filename for display');
+        
+        // Create a mini-object just for decrypting the filename
+        const filenamePart = {
+          type: 'file',
+          _encrypted: true,
+          fileName: displayData.fileName
+        };
+        
+        // Decrypt just the filename
+        const decrypted = decryptClipboardContent(filenamePart, sessionData.passphrase);
+        
+        // Use the decrypted filename
+        displayData.fileName = decrypted.fileName || defaultName;
+        console.log('Successfully decrypted filename:', displayData.fileName);
+      }
+    } catch (err) {
+      console.error('Error decrypting filename for display:', err);
+      displayData.fileName = defaultName;
+    }
+  }
+  
+  return displayData;
 }

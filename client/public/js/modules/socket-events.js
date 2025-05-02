@@ -269,20 +269,43 @@ function handleFileBroadcast(fileData) {
   // Always log what we received without exposing sensitive content
   console.log('Received shared file from other client');
   
+  // Check if filename is encrypted
+  let displayName = 'file';
+  if (fileData.fileName) {
+    if (fileData.fileName.startsWith('U2FsdGVk')) {
+      console.log('Received file with encrypted filename, attempting to decrypt for display');
+      
+      try {
+        // Get session data for decryption
+        const sessionData = Session.getCurrentSession();
+        if (sessionData && sessionData.passphrase) {
+          // Try to decrypt just the filename for display purposes
+          const tempObject = {
+            type: 'file',
+            fileName: fileData.fileName
+          };
+          
+          const decrypted = decryptClipboardContent(tempObject, sessionData.passphrase);
+          if (decrypted && decrypted.fileName && !decrypted.fileName.startsWith('U2FsdGVk')) {
+            displayName = decrypted.fileName;
+            console.log('Successfully decrypted filename for display:', displayName);
+          }
+        }
+      } catch (error) {
+        console.error('Error decrypting filename for display:', error);
+      }
+    } else {
+      displayName = fileData.fileName;
+    }
+  }
+  
   // Store the shared file and update UI
   if (fileUpdateCallback) {
     fileUpdateCallback(fileData);
   }
   
-  try {
-    // Show notification with the filename
-    const fileName = fileData.fileName || 'file';
-    UIManager.displayMessage(`File received: ${fileName}`, 'info', 5000);
-  } catch (error) {
-    // Generic message if filename can't be displayed (e.g., if still encrypted)
-    console.error('Error displaying file notification:', error);
-    UIManager.displayMessage('File received', 'info', 5000);
-  }
+  // Show notification with the decrypted filename if possible
+  UIManager.displayMessage(`File received: ${displayName}`, 'info', 5000);
 }
 
 /**
