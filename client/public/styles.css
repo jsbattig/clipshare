@@ -353,6 +353,37 @@ button:disabled {
   justify-content: center;
 }
 
+/* Content type icons */
+.status-icon:before {
+  content: "";
+  font-size: 14px;
+  color: #fff;
+}
+
+.text-content .status-icon {
+  background-color: var(--primary-color);
+}
+.text-content .status-icon:before {
+  content: "T";
+  font-weight: bold;
+}
+
+.image-content .status-icon {
+  background-color: var(--secondary-color);
+}
+.image-content .status-icon:before {
+  content: "I";
+  font-weight: bold;
+}
+
+.file-content .status-icon {
+  background-color: var(--info-color);
+}
+.file-content .status-icon:before {
+  content: "F";
+  font-weight: bold;
+}
+
 /* Clipboard Container */
 .clipboard-container {
   position: relative;
