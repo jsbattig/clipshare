@@ -279,9 +279,17 @@ export function updateConnectedDevices(clients) {
   const socket = io?.sockets?.socket || { id: 'unknown' };
   const currentClientId = socket.id;
   
+  // Count active clients for accurate display
+  let activeClientCount = 0;
+  
   // Create a card for each connected client
   clients.forEach(client => {
     const isCurrentClient = client.id === currentClientId;
+    const isActive = client.active !== false; // Default to active if property missing
+    
+    if (isActive) {
+      activeClientCount++;
+    }
     
     // Format connected time
     const connectedTime = formatTimeAgo(client.connectedAt);
@@ -289,6 +297,11 @@ export function updateConnectedDevices(clients) {
     // Create device card
     const deviceCard = document.createElement('div');
     deviceCard.className = 'device-card';
+    
+    // Add active/inactive status class
+    if (!isActive) {
+      deviceCard.classList.add('inactive-device');
+    }
     
     // Create device icon
     const deviceIcon = document.createElement('div');
@@ -323,13 +336,19 @@ export function updateConnectedDevices(clients) {
     deviceInfo.appendChild(deviceIp);
     deviceInfo.appendChild(deviceTime);
     
-    // Create device status if this is the current client
+    // Create status indicator
+    const deviceStatus = document.createElement('div');
     if (isCurrentClient) {
-      const deviceStatus = document.createElement('div');
       deviceStatus.className = 'device-status current';
       deviceStatus.textContent = 'You';
-      deviceCard.appendChild(deviceStatus);
+    } else if (!isActive) {
+      deviceStatus.className = 'device-status inactive';
+      deviceStatus.textContent = 'Inactive';
+    } else {
+      deviceStatus.className = 'device-status active';
+      deviceStatus.textContent = 'Active';
     }
+    deviceCard.appendChild(deviceStatus);
     
     // Assemble the card
     deviceCard.appendChild(deviceIcon);
@@ -339,8 +358,8 @@ export function updateConnectedDevices(clients) {
     devicesContainer.appendChild(deviceCard);
   });
   
-  // Update the toggle button text
-  toggleButton.textContent = `Connected Devices (${clients.length})`;
+  // Update the toggle button text with active count
+  toggleButton.textContent = `Connected Devices (${activeClientCount} active of ${clients.length})`;
 }
 
 /**

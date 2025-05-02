@@ -192,6 +192,12 @@ button:disabled {
   background-color: #f8f9fa;
 }
 
+.device-card.inactive-device {
+  opacity: 0.6;
+  background-color: #f0f0f0;
+  border: 1px dashed var(--border-color);
+}
+
 .device-card:last-child {
   margin-bottom: 0;
 }
@@ -237,6 +243,16 @@ button:disabled {
 
 .device-status.current {
   background-color: var(--success-color);
+  color: white;
+}
+
+.device-status.active {
+  background-color: var(--info-color);
+  color: white;
+}
+
+.device-status.inactive {
+  background-color: var(--error-color);
   color: white;
 }
 

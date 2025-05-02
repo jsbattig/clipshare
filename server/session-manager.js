@@ -6,6 +6,9 @@
 // Simple in-memory session storage
 const sessions = {};
 
+// Constants for ping mechanism
+const PING_TIMEOUT = 15000; // 15 seconds - time after which a client is considered inactive
+
 // Model for client info within sessions
 // {
 //   id: socket.id,
@@ -204,7 +207,13 @@ function addClientWithInfo(sessionId, clientId, clientInfo) {
  */
 function removeClientFromSession(sessionId, clientId) {
   if (sessions[sessionId]) {
+    // Remove from clients array
     sessions[sessionId].clients = sessions[sessionId].clients.filter(id => id !== clientId);
+    
+    // ALSO remove from clientsInfo object
+    if (sessions[sessionId].clientsInfo && sessions[sessionId].clientsInfo[clientId]) {
+      delete sessions[sessionId].clientsInfo[clientId];
+    }
     
     // Optional: Clean up empty sessions after some time
     if (sessions[sessionId].clients.length === 0) {
@@ -249,8 +258,198 @@ function getSessionClientsInfo(sessionId) {
     browserName: info.browserInfo?.name || 'Unknown',
     osName: info.browserInfo?.os || 'Unknown',
     connectedAt: info.connectedAt || new Date().toISOString(),
-    lastActivity: info.lastActivity || Date.now()
+    lastActivity: info.lastActivity || Date.now(),
+    active: isClientActive(sessionId, clientId)
   }));
+}
+
+/**
+ * Check if a client is active (has responded to recent pings)
+ * @param {string} sessionId - The session identifier
+ * @param {string} clientId - The client socket ID
+ * @returns {boolean} True if client is active
+ */
+function isClientActive(sessionId, clientId) {
+  if (!sessions[sessionId]) return false;
+  
+  // Initialize activeClients if it doesn't exist
+  if (!sessions[sessionId].activeClients) {
+    sessions[sessionId].activeClients = [];
+  }
+  
+  return sessions[sessionId].activeClients.includes(clientId);
+}
+
+/**
+ * Get only active clients for a session
+ * @param {string} sessionId - The session identifier
+ * @returns {Array} List of active client IDs
+ */
+function getActiveSessionClients(sessionId) {
+  if (!sessions[sessionId]) return [];
+  
+  // Initialize activeClients if it doesn't exist
+  if (!sessions[sessionId].activeClients) {
+    sessions[sessionId].activeClients = [];
+  }
+  
+  return sessions[sessionId].activeClients;
+}
+
+/**
+ * Record a ping response from a client
+ * @param {string} sessionId - The session identifier
+ * @param {string} clientId - The client socket ID
+ */
+function recordPingResponse(sessionId, clientId) {
+  if (!sessions[sessionId]) return;
+  
+  // Initialize activeClients if it doesn't exist
+  if (!sessions[sessionId].activeClients) {
+    sessions[sessionId].activeClients = [];
+  }
+  
+  // Add to active clients if not already there
+  if (!sessions[sessionId].activeClients.includes(clientId)) {
+    sessions[sessionId].activeClients.push(clientId);
+  }
+  
+  // Initialize lastPingResponse if it doesn't exist
+  if (!sessions[sessionId].lastPingResponse) {
+    sessions[sessionId].lastPingResponse = {};
+  }
+  
+  // Update last ping timestamp
+  sessions[sessionId].lastPingResponse[clientId] = Date.now();
+}
+
+/**
+ * Get all active session IDs
+ * @returns {Array} List of active session IDs
+ */
+function getActiveSessions() {
+  try {
+    // Add debug log to confirm this function is being called
+    console.log('getActiveSessions called, found:', Object.keys(sessions).length, 'sessions');
+    return Object.keys(sessions);
+  } catch (err) {
+    console.error('Error in getActiveSessions:', err);
+    return []; // Return empty array on error to prevent crashes
+  }
+}
+
+/**
+ * Get detailed status information about all sessions
+ * @returns {Object} Object with session status information
+ */
+function getSessionsStatus() {
+  const status = {};
+  try {
+    Object.keys(sessions).forEach(sessionId => {
+      status[sessionId] = {
+        clientCount: sessions[sessionId].clients.length,
+        activeClientCount: sessions[sessionId].activeClients?.length || 0,
+        hasLastPingData: !!sessions[sessionId].lastPingResponse
+      };
+    });
+    return status;
+  } catch (err) {
+    console.error('Error in getSessionsStatus:', err);
+    return {};
+  }
+}
+
+/**
+ * Reset the active clients for a session based on connected Socket.IO clients
+ * @param {string} sessionId - The session identifier
+ * @param {Array} connectedSocketIds - Array of connected socket IDs from Socket.IO
+ */
+function resetActiveClients(sessionId, connectedSocketIds) {
+  if (!sessions[sessionId]) return;
+  
+  console.log(`Resetting active clients for session ${sessionId}`);
+  console.log(`Connected sockets: ${connectedSocketIds.length}`);
+  console.log(`Previous clients: ${sessions[sessionId].clients.length}`);
+
+  // Reset clients array to match connected sockets
+  sessions[sessionId].clients = [...connectedSocketIds];
+  
+  // Reset active clients to same list
+  sessions[sessionId].activeClients = [...connectedSocketIds];
+  
+  // Clean up clientsInfo to match connected sockets
+  if (sessions[sessionId].clientsInfo) {
+    // Get current client IDs
+    const currentClientIds = Object.keys(sessions[sessionId].clientsInfo);
+    
+    // Remove clients that are no longer connected
+    currentClientIds.forEach(clientId => {
+      if (!connectedSocketIds.includes(clientId)) {
+        delete sessions[sessionId].clientsInfo[clientId];
+      }
+    });
+  }
+  
+  console.log(`After reset: ${sessions[sessionId].clients.length} clients`);
+}
+
+/**
+ * Clean up non-responsive clients
+ * @param {string} sessionId - The session identifier
+ * @returns {Object} Object containing count of removed clients and their IDs
+ */
+function cleanupNonResponsiveClients(sessionId) {
+  if (!sessions[sessionId]) return { count: 0, removedIds: [] };
+  
+  console.log(`Running cleanup for session ${sessionId}`);
+  
+  // Initialize tracking structures if they don't exist
+  if (!sessions[sessionId].lastPingResponse) {
+    sessions[sessionId].lastPingResponse = {};
+  }
+  if (!sessions[sessionId].activeClients) {
+    sessions[sessionId].activeClients = [];
+  }
+  
+  const currentTime = Date.now();
+  console.log(`Active clients before cleanup: ${sessions[sessionId].activeClients.length}`);
+  
+  // Get clients that haven't responded recently
+  const inactiveClients = sessions[sessionId].clients.filter(clientId => {
+    // Check if client has a recent ping response
+    const lastPing = sessions[sessionId].lastPingResponse[clientId] || 0;
+    return (currentTime - lastPing) > PING_TIMEOUT;
+  });
+  
+  console.log(`Found ${inactiveClients.length} inactive clients`);
+  
+  // Remove each inactive client completely
+  inactiveClients.forEach(clientId => {
+    // Remove from clients array
+    sessions[sessionId].clients = sessions[sessionId].clients.filter(id => id !== clientId);
+    
+    // Remove from active clients
+    sessions[sessionId].activeClients = sessions[sessionId].activeClients.filter(id => id !== clientId);
+    
+    // Remove from clients info
+    if (sessions[sessionId].clientsInfo && sessions[sessionId].clientsInfo[clientId]) {
+      delete sessions[sessionId].clientsInfo[clientId];
+    }
+    
+    // Remove from last ping response tracking
+    if (sessions[sessionId].lastPingResponse[clientId]) {
+      delete sessions[sessionId].lastPingResponse[clientId];
+    }
+    
+    console.log(`Removed inactive client ${clientId} from session ${sessionId}`);
+  });
+  
+  console.log(`Active clients after cleanup: ${sessions[sessionId].activeClients.length}`);
+  
+  return {
+    count: inactiveClients.length,
+    removedIds: inactiveClients
+  };
 }
 
 module.exports = {
@@ -262,5 +461,12 @@ module.exports = {
   removeClientFromSession,
   getSessionClients,
   getSessionClientsInfo,
-  getClientCount
+  getClientCount,
+  isClientActive,
+  getActiveSessionClients,
+  recordPingResponse,
+  cleanupNonResponsiveClients,
+  getActiveSessions,
+  resetActiveClients,
+  getSessionsStatus
 };

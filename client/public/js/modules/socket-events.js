@@ -10,7 +10,7 @@ import * as UIManager from './ui-manager.js';
 import * as ClipboardUtils from './clipboard-monitor.js';
 import * as ContentHandlers from './content-handlers.js';
 import * as Session from './session.js';
-import { getBrowserInfo, hashContent } from './utils.js';
+import { getBrowserInfo, hashContent, getFormattedTime } from './utils.js';
 
 // Module state
 let socket = null;
@@ -55,6 +55,10 @@ function setupSocketListeners() {
   // Content events
   socket.on('clipboard-broadcast', handleClipboardBroadcast);
   socket.on('file-broadcast', handleFileBroadcast);
+  
+  // Ping-pong mechanism
+  socket.on('ping-clients', handleServerPing);
+  socket.on('session-inactive', handleSessionInactive);
 }
 
 /**
@@ -316,34 +320,124 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+// Removed duplicate handleClientListUpdate function
+
+/**
+ * Handle server ping request
+ * @param {Object} data - Ping data including timestamp
+ */
+function handleServerPing(data) {
+  try {
+    // Log with detailed info
+    console.log(`Received server ping at ${getFormattedTime()}`, data);
+    
+    // Only respond if we're connected to a session
+    const sessionData = Session.getCurrentSession();
+    if (!sessionData || !socket || !socket.connected) {
+      console.warn('Cannot respond to ping - no session data or socket connection');
+      return;
+    }
+    
+    // Get browser info for enhanced client identification
+    const browserInfo = getBrowserInfo();
+    
+    // Log sending response
+    console.log(`Sending ping response for session ${sessionData.sessionId}, client ID: ${socket.id}`);
+    
+    // Respond with session authentication and client info
+    socket.emit('client-ping-response', {
+      sessionId: sessionData.sessionId,
+      sessionToken: sessionData.passphrase,
+      timestamp: Date.now(),
+      browserInfo: browserInfo,
+      clientId: socket.id,
+      responseTime: getFormattedTime()
+    });
+    
+    // Update UI to show we're active
+    UIManager.updateSyncStatus('Connection active - last ping: ' + getFormattedTime());
+    
+    // Update local client list if we have one
+    if (connectedClients && connectedClients.length > 0) {
+      // Find our client ID in the list
+      const ourClient = connectedClients.find(client => client.id === socket.id);
+      if (ourClient) {
+        // Make sure it's marked as active
+        ourClient.active = true;
+        
+        // If we have a callback, update UI
+        if (clientListCallback) {
+          clientListCallback(connectedClients);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error handling server ping:', err);
+  }
+}
+
+/**
+ * Handle session inactive notification
+ * @param {Object} data - Notification data with message
+ */
+function handleSessionInactive(data) {
+  try {
+    console.warn('Received session inactive notification:', data);
+    
+    // Display error message to user with longer duration
+    UIManager.displayMessage(data.message || 'Session became inactive. Reconnecting...', 'error', 8000);
+    
+    // Update UI to show inactive status
+    UIManager.updateSyncStatus('Connection inactive - reconnecting...');
+    
+    // Add details to console for debugging
+    console.log(`Session inactive at ${getFormattedTime()} - will redirect to login in 3 seconds`);
+    
+    // Force reconnection by redirecting to login after a delay
+    setTimeout(() => {
+      console.log('Session inactive - logging out and redirecting to login');
+      Session.logout();
+    }, 3000);
+  } catch (err) {
+    console.error('Error handling session inactive notification:', err);
+    // Fallback logout in case of error
+    setTimeout(() => Session.logout(), 5000);
+  }
+}
+
+/**
+ * Debug function to log all connected clients
+ */
+function logConnectedClients() {
+  console.log('Connected clients:', connectedClients);
+  
+  // Count active clients
+  const activeCount = connectedClients.filter(client => client.active).length;
+  console.log(`Active clients: ${activeCount} / ${connectedClients.length}`);
+  
+  return { total: connectedClients.length, active: activeCount };
+}
+
 /**
  * Handle client list update event
  * @param {Object} data - Event data containing clients array
  */
 function handleClientListUpdate(data) {
+  console.log('Received client list update:', data);
+  
   if (data.clients && Array.isArray(data.clients)) {
     // Update our local list of clients
     connectedClients = data.clients;
+    
+    // Log client count information
+    const counts = logConnectedClients();
     
     // Update UI via callback
     if (clientListCallback) {
       clientListCallback(connectedClients);
     }
+    
+    // Also update the status display for better user feedback
+    UIManager.updateSyncStatus(`Connected to session with ${counts.active} active clients`);
   }
-}
-
-/**
- * Get socket instance
- * @returns {Object|null} Socket.io instance
- */
-export function getSocket() {
-  return socket;
-}
-
-/**
- * Get connected clients list
- * @returns {Array} List of connected clients
- */
-export function getConnectedClients() {
-  return connectedClients;
 }
