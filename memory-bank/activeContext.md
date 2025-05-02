@@ -10,6 +10,16 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Fixed File Download with Encryption (May 2, 2025):**
+- Fixed critical issue where file downloads were failing due to encrypted content not being decrypted
+- Enhanced download functionality to properly decrypt both the filename and file content before download
+- Fixed UI display issues that were showing encrypted filenames instead of readable names
+- Improved the encryption workflow to maintain seamless user experience:
+  - Added proper decryption in the `downloadFile()` function to handle encrypted data URLs
+  - Removed the "Encrypted file" placeholder in UI and properly used decrypted names
+  - Added more robust error handling for decryption failures
+  - Maintained complete security with all content still encrypted during transmission
+
 **Fixed Encrypted Filename Display (May 2, 2025):**
 - Fixed UI issue where encrypted filenames were displayed to users instead of readable names
 - Added filename decryption in multiple components to ensure proper display:
