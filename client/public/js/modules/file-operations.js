@@ -8,7 +8,7 @@ import { CONFIG } from './config.js';
 import { formatFileSize, getFileExtension, getMimeTypeFromExtension, dataURLtoBlob } from './utils.js';
 import * as UIManager from './ui-manager.js';
 import * as Session from './session.js';
-import { encryptClipboardContent } from './encryption.js';
+import { encryptClipboardContent, encryptClipboardContentAsync } from './encryption.js';
 
 // Module state
 let droppedFiles = [];
@@ -45,11 +45,11 @@ export function handleFileDrop(event, onSingleFile, onMultipleFiles) {
 }
 
 /**
- * Process a single file upload
+ * Process a single file upload with non-blocking async encryption
  * @param {File} file - File object from drop event
  * @param {Function} onFileProcessed - Callback for when file is processed
  */
-export function handleSingleFileUpload(file, onFileProcessed) {
+export async function handleSingleFileUpload(file, onFileProcessed) {
   if (file.size > CONFIG.files.maxFileSize) {
     UIManager.displayMessage(
       `File too large (${formatFileSize(file.size)}). Maximum size is ${formatFileSize(CONFIG.files.maxFileSize)}.`, 
@@ -62,29 +62,40 @@ export function handleSingleFileUpload(file, onFileProcessed) {
   // Mark transfer in progress
   fileTransferInProgress = true;
   
-  const reader = new FileReader();
+  // Show user that processing is happening
+  UIManager.displayMessage(`Reading file: ${file.name}...`, 'info', 0);
   
-  reader.onload = function(e) {
+  try {
+    // Wrap FileReader in a Promise for cleaner async code
+    const fileContent = await readFileAsDataURL(file);
+    
     // Create file data object
     const fileData = {
       type: 'file',
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type || getMimeTypeFromExtension(file.name),
-      content: e.target.result,
+      content: fileContent,
       timestamp: Date.now()
     };
     
-    // Hide drop zone
-    UIManager.hideDropZone();
+    console.log(`File read complete: ${file.name}, size: ${formatFileSize(file.size)}`);
     
-    // Call the callback with processed file data
+    // DO NOT hide the drop zone yet - wait until encryption is complete
+    // We'll use the drop zone as a visual indicator that work is still happening
+    
+    // Process the file data
     if (onFileProcessed) {
       // Always encrypt the file data before sending
       const sessionData = Session.getCurrentSession();
       if (sessionData && sessionData.passphrase) {
         try {
-          console.log(`Encrypting file '${file.name}' before sending`);
+          // For large files, make sure the user knows encryption is happening
+          if (file.size > 100000) {
+            UIManager.displayMessage(`Encrypting file "${file.name}"...`, 'info', 0);
+          }
+          
+          console.log(`Starting encryption for file '${file.name}'`);
           
           // CRITICAL: Store a complete copy of the original file data
           // before encryption for local use (download, display)
@@ -93,7 +104,7 @@ export function handleSingleFileUpload(file, onFileProcessed) {
             fileName: file.name,
             fileSize: file.size,
             fileType: file.type || getMimeTypeFromExtension(file.name),
-            content: e.target.result,  // This is the raw data URL from FileReader
+            content: fileContent,  // This is the raw data URL from FileReader
             timestamp: Date.now()
           };
           
@@ -103,7 +114,7 @@ export function handleSingleFileUpload(file, onFileProcessed) {
             fileName: file.name,
             fileSize: file.size,
             fileType: file.type || getMimeTypeFromExtension(file.name),
-            content: e.target.result,
+            content: fileContent,
             timestamp: Date.now(),
             isOriginal: true  // Flag to identify as original data
           };
@@ -115,8 +126,20 @@ export function handleSingleFileUpload(file, onFileProcessed) {
             contentIsDataUrl: window.originalFileData.content.startsWith('data:')
           });
           
-          // Encrypt the file data for transmission (using a copy to avoid modifying original)
-          const encryptedFileData = encryptClipboardContent({...fileData}, sessionData.passphrase);
+          // USE ASYNC ENCRYPTION FOR LARGE FILES to prevent socket disconnections
+          // This is a critical change - use async version for files > 50KB
+          let encryptedFileData;
+          if (file.size > 50000) {
+            console.log('Using async encryption for large file');
+            encryptedFileData = await encryptClipboardContentAsync({...fileData}, sessionData.passphrase);
+            console.log('Async encryption complete');
+          } else {
+            // Small files can use synchronous encryption
+            encryptedFileData = encryptClipboardContent({...fileData}, sessionData.passphrase);
+          }
+          
+          // Now that encryption is done, we can hide the drop zone
+          UIManager.hideDropZone();
           
           // Also preserve original data reference as before for backward compatibility
           encryptedFileData._originalData = originalFileData;
@@ -140,46 +163,66 @@ export function handleSingleFileUpload(file, onFileProcessed) {
           
           // DIRECTLY STORE A REFERENCE TO THE SHARED FILE
           // This bypasses any potential reference loss in the callback chain
-          // Import needed at the top: import { setSharedFile } from './content-handlers.js';
           if (typeof window.ContentHandlers !== 'undefined' && 
               typeof window.ContentHandlers.setSharedFile === 'function') {
             console.log('Directly setting shared file with original data in ContentHandlers');
             window.ContentHandlers.setSharedFile(encryptedFileData);
           }
           
+          // Call the callback with processed data
           onFileProcessed(encryptedFileData);
           UIManager.displayMessage(`File "${file.name}" encrypted and processed`, 'success', 3000);
         } catch (error) {
           console.error('Failed to encrypt file:', error);
-          UIManager.displayMessage('Failed to encrypt file.', 'error', 5000);
-          // Don't send the file unencrypted - encryption is required
+          UIManager.displayMessage('Failed to encrypt file: ' + error.message, 'error', 5000);
+          UIManager.hideDropZone();
+          fileTransferInProgress = false;
           return;
         }
       } else {
         console.error('No session passphrase available for encryption');
         UIManager.displayMessage('Cannot send file: Missing encryption key', 'error', 5000);
+        UIManager.hideDropZone();
+        fileTransferInProgress = false;
         return;
       }
+    } else {
+      // No callback provided, hide the drop zone
+      UIManager.hideDropZone();
     }
-    
-    // Update UI
-    UIManager.displayMessage(`File "${file.name}" processed`, 'success', 3000);
     
     // Reset transfer status
     fileTransferInProgress = false;
-  };
-  
-  reader.onerror = function() {
-    console.error('Error reading file:', file.name);
-    UIManager.displayMessage(`Error reading file: ${file.name}`, 'error', 3000);
+    
+  } catch (error) {
+    console.error('Error processing file:', error);
+    UIManager.displayMessage(`Error processing file: ${error.message}`, 'error', 5000);
+    UIManager.hideDropZone();
     fileTransferInProgress = false;
-  };
-  
-  // Display loading message
-  UIManager.displayMessage(`Reading file: ${file.name}...`, 'info', 0);
-  
-  // Read file as data URL
-  reader.readAsDataURL(file);
+  }
+}
+
+/**
+ * Read a file as data URL (Promise-based wrapper around FileReader)
+ * @param {File} file - The file to read
+ * @returns {Promise<string>} Promise resolving to the file content as data URL
+ */
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+      resolve(e.target.result);
+    };
+    
+    reader.onerror = function(e) {
+      console.error('Error reading file:', file.name, e);
+      reject(new Error(`Error reading file: ${file.name}`));
+    };
+    
+    // Read file as data URL
+    reader.readAsDataURL(file);
+  });
 }
 
 /**
@@ -303,7 +346,32 @@ export async function createAndShareZip(files, onZipCreated) {
       if (sessionData && sessionData.passphrase) {
         try {
           console.log('Encrypting ZIP archive before sending');
-          const encryptedZipData = encryptClipboardContent(fileData, sessionData.passphrase);
+          
+          // ZIP archives can be large - use async encryption to prevent socket disconnections
+          let encryptedZipData;
+          if (fileData.fileSize > 50000) {
+            console.log('Using async encryption for large ZIP archive');
+            encryptedZipData = await encryptClipboardContentAsync(fileData, sessionData.passphrase);
+            console.log('Async ZIP encryption complete');
+          } else {
+            // Small archives can use synchronous encryption
+            encryptedZipData = encryptClipboardContent(fileData, sessionData.passphrase);
+          }
+          
+          // Store original data for download
+          encryptedZipData._originalData = {...fileData};
+          encryptedZipData._displayFileName = fileData.fileName;
+          
+          // Update global reference
+          window.originalFileData = {
+            fileName: fileData.fileName,
+            fileSize: fileData.fileSize,
+            fileType: fileData.fileType,
+            content: fileData.content,
+            timestamp: Date.now(),
+            isOriginal: true
+          };
+          
           onZipCreated(encryptedZipData);
           UIManager.displayMessage(`ZIP archive encrypted and ready to share`, 'success', 3000);
         } catch (error) {

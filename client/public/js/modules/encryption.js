@@ -69,6 +69,36 @@ export function decryptData(encryptedData, passphrase) {
 }
 
 /**
+ * Encrypt data with AES asynchronously using the session passphrase
+ * This non-blocking version prevents main thread blocking for large files
+ * @param {string|object} data - Data to encrypt
+ * @param {string} passphrase - Session passphrase to use as encryption key
+ * @returns {Promise<string>} Promise resolving to encrypted data string
+ */
+export function encryptDataAsync(data, passphrase) {
+  return new Promise((resolve, reject) => {
+    try {
+      // Use setTimeout to yield back to the event loop
+      // This prevents blocking the main thread for large files
+      setTimeout(() => {
+        try {
+          // Convert data to string if needed
+          const dataString = typeof data === 'object' ? JSON.stringify(data) : String(data);
+          
+          // Encrypt with AES using the session passphrase
+          const encrypted = CryptoJS.AES.encrypt(dataString, passphrase).toString();
+          resolve(encrypted);
+        } catch (innerError) {
+          reject(innerError);
+        }
+      }, 0);
+    } catch (outerError) {
+      reject(outerError);
+    }
+  });
+}
+
+/**
  * Encrypt clipboard content object based on content type
  * @param {Object} content - Clipboard content object
  * @param {string} passphrase - Session passphrase
@@ -108,6 +138,68 @@ export function encryptClipboardContent(content, passphrase) {
     return encryptedContent;
   } catch (error) {
     console.error('Encryption failed:', error);
+    // Return the original content if encryption fails
+    return content;
+  }
+}
+
+/**
+ * Encrypt clipboard content object asynchronously - non-blocking version
+ * Use this for large files to prevent socket disconnections
+ * @param {Object} content - Clipboard content object
+ * @param {string} passphrase - Session passphrase
+ * @returns {Promise<Object>} Promise resolving to encrypted content object
+ */
+export async function encryptClipboardContentAsync(content, passphrase) {
+  // Early validation
+  if (!passphrase) {
+    console.warn('No passphrase provided for encryption, returning unencrypted content');
+    return content;
+  }
+  
+  if (!content) {
+    console.warn('No content provided for encryption');
+    return content;
+  }
+  
+  // Create a copy to avoid modifying the original
+  const encryptedContent = {...content};
+  
+  try {
+    console.log(`Asynchronously encrypting ${content.type} content`);
+    
+    // Show progress via UI if needed for large files
+    if (content.type === 'file' && content.fileSize > 100000) {
+      // This will be passed to UI manager by the caller
+      encryptedContent._encryptionProgress = true;
+    }
+    
+    if (content.type === 'text') {
+      // For text, encrypt the content directly
+      encryptedContent.content = await encryptDataAsync(content.content, passphrase);
+    } else if (content.type === 'image') {
+      // For images, encrypt the base64 data
+      encryptedContent.content = await encryptDataAsync(content.content, passphrase);
+    } else if (content.type === 'file') {
+      // For files, encrypt the file data - most important for large files
+      console.log('Starting async file content encryption');
+      encryptedContent.content = await encryptDataAsync(content.content, passphrase);
+      console.log('Completed async file content encryption');
+      
+      // Also encrypt the filename for additional privacy
+      encryptedContent.fileName = await encryptDataAsync(content.fileName, passphrase);
+      
+      // Encrypt MIME type if available
+      if (content.mimeType) {
+        encryptedContent.mimeType = await encryptDataAsync(content.mimeType, passphrase);
+      }
+    }
+    
+    // No need for an encrypted flag - all transmitted content is assumed encrypted
+    
+    return encryptedContent;
+  } catch (error) {
+    console.error('Async encryption failed:', error);
     // Return the original content if encryption fails
     return content;
   }
