@@ -18,7 +18,8 @@ const bannedSessions = new Map();
 const SESSION_CONSTANTS = {
   BAN_DURATION: 10 * 60 * 1000, // 10 minutes in milliseconds
   VERIFICATION_TIMEOUT: 30 * 1000, // 30 seconds in milliseconds
-  MAX_PENDING_VERIFICATIONS: 10 // Maximum pending verification requests
+  MAX_PENDING_VERIFICATIONS: 10, // Maximum pending verification requests
+  DEBUG_MODE: true // Enable debug output for troubleshooting
 };
 
 // Storage for pending verification requests
@@ -126,6 +127,10 @@ function registerJoinRequest(sessionId, clientId, encryptedVerification, callbac
   // Normalize session ID
   const normalizedSessionId = sessionId.trim();
   
+  if (SESSION_CONSTANTS.DEBUG_MODE) {
+    console.log(`[DEBUG] Registering join request for client ${clientId} in session ${normalizedSessionId}`);
+  }
+  
   // Check if session is banned
   if (isBannedSession(normalizedSessionId)) {
     return {
@@ -145,6 +150,14 @@ function registerJoinRequest(sessionId, clientId, encryptedVerification, callbac
   // Get authorized clients to verify
   const authorizedClientsCount = sessions[normalizedSessionId].authorizedClients?.size || 0;
   
+  if (SESSION_CONSTANTS.DEBUG_MODE) {
+    console.log(`[DEBUG] Session ${normalizedSessionId} has ${authorizedClientsCount} authorized clients`);
+    if (authorizedClientsCount > 0) {
+      console.log(`[DEBUG] Authorized clients: ${Array.from(sessions[normalizedSessionId].authorizedClients || []).join(', ')}`);
+      console.log(`[DEBUG] Connected clients: ${sessions[normalizedSessionId].clients.join(', ')}`);
+    }
+  }
+  
   // If there are no authorized clients, auto-accept
   if (authorizedClientsCount === 0) {
     // Auto-authorize this client
@@ -153,9 +166,39 @@ function registerJoinRequest(sessionId, clientId, encryptedVerification, callbac
     }
     sessions[normalizedSessionId].authorizedClients.add(clientId);
     
+    if (SESSION_CONSTANTS.DEBUG_MODE) {
+      console.log(`[DEBUG] Auto-authorized client ${clientId} as first authorized client`);
+    }
+    
     return {
       accepted: true,
       message: 'Auto-authorized as first client',
+      autoAuthorized: true
+    };
+  }
+  
+  // NEW CODE: Check if any authorized clients are actually connected
+  const authorizedClientsSet = sessions[normalizedSessionId].authorizedClients;
+  const connectedAuthorizedClients = Array.from(authorizedClientsSet).filter(
+    id => sessions[normalizedSessionId].clients.includes(id)
+  );
+  
+  if (SESSION_CONSTANTS.DEBUG_MODE) {
+    console.log(`[DEBUG] Found ${connectedAuthorizedClients.length} connected authorized clients`);
+    console.log(`[DEBUG] Connected authorized clients: ${connectedAuthorizedClients.join(', ')}`);
+  }
+  
+  if (connectedAuthorizedClients.length === 0) {
+    // All authorized clients have disconnected, auto-authorize this client
+    sessions[normalizedSessionId].authorizedClients.add(clientId);
+    
+    if (SESSION_CONSTANTS.DEBUG_MODE) {
+      console.log(`[DEBUG] Auto-authorized client ${clientId} because no authorized clients are connected`);
+    }
+    
+    return {
+      accepted: true,
+      message: 'Auto-authorized (no connected authorized clients)',
       autoAuthorized: true
     };
   }

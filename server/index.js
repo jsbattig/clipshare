@@ -255,10 +255,32 @@ io.on('connection', (socket) => {
       return;
     }
     
-    console.log(`Broadcasting verification request to ${authorizedClients.length} authorized clients`);
+    // IMPORTANT: Get all clients currently in the socket.io room (connected)
+    const room = io.sockets.adapter.rooms.get(sessionId);
+    const connectedSocketIds = room ? Array.from(room) : [];
     
-    // Send verification request to all authorized clients
-    authorizedClients.forEach(authorizedClientId => {
+    // Filter authorized clients to only those that are actually connected
+    const connectedAuthorizedClients = authorizedClients.filter(id => 
+      connectedSocketIds.includes(id));
+    
+    console.log(`Debug info for session ${sessionId}:`);
+    console.log(`- Total authorized clients: ${authorizedClients.length}`);
+    console.log(`- Connected sockets: ${connectedSocketIds.length}`);
+    console.log(`- Connected authorized clients: ${connectedAuthorizedClients.length}`);
+    
+    if (connectedAuthorizedClients.length === 0) {
+      console.log(`No connected authorized clients in session ${sessionId} to verify client ${clientId}`);
+      
+      // Auto-authorize this client since there are no connected authorized clients
+      const result = sessionManager.finalizeVerification(sessionId, clientId, true);
+      console.log(`Auto-authorized client ${clientId} due to no connected authorized clients`);
+      return;
+    }
+    
+    console.log(`Broadcasting verification request to ${connectedAuthorizedClients.length} connected authorized clients`);
+    
+    // Send verification request to all connected authorized clients
+    connectedAuthorizedClients.forEach(authorizedClientId => {
       io.to(authorizedClientId).emit('verify-join-request', {
         sessionId,
         clientId,

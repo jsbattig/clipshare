@@ -15,7 +15,8 @@ const CryptoJS = window.CryptoJS;
 const AUTH_CONSTANTS = {
   VERIFICATION_TEXT: "ClipShare is freaking awesome",
   AUTH_TIMEOUT: 30000, // 30 seconds timeout for verification
-  STORAGE_KEY: CONFIG.storage.sessionKey
+  STORAGE_KEY: CONFIG.storage.sessionKey,
+  DEBUG_MODE: true // Enable debug logging
 };
 
 // Module state
@@ -81,19 +82,31 @@ export function createOrJoinSession(sessionId, passphrase, onStatusUpdate) {
     // Update status
     updateStatus('Checking session existence...');
     
+    if (AUTH_CONSTANTS.DEBUG_MODE) {
+      console.log(`Checking if session '${sessionId}' exists...`);
+    }
+    
     // First check if session exists with active clients
     socket.emit('check-session-exists', { sessionId }, (response) => {
+      if (AUTH_CONSTANTS.DEBUG_MODE) {
+        console.log('Session check response:', response);
+      }
+      
       if (response.exists && response.hasActiveClients) {
         // Session exists with active clients, need verification
-        updateStatus('Session exists. Requesting to join...');
+        updateStatus('Session exists with active clients. Requesting to join...');
         requestToJoinSession(sessionId, passphrase, resolve, reject);
       } else if (response.banned) {
         // Session is banned
         updateStatus('This session has been banned temporarily for security reasons', 'error');
         reject('This session has been banned temporarily. Please try a different session name.');
+      } else if (response.exists) {
+        // Session exists but has no active clients - we still need to join it
+        updateStatus('Session exists but has no active clients. Requesting to join...');
+        requestToJoinSession(sessionId, passphrase, resolve, reject);
       } else {
-        // No active clients or session doesn't exist - create new
-        updateStatus('Creating new session...');
+        // Session doesn't exist - create new
+        updateStatus('Session does not exist. Creating new session...');
         createNewSession(sessionId, passphrase, resolve, reject);
       }
     });
@@ -111,13 +124,29 @@ function requestToJoinSession(sessionId, passphrase, resolve, reject) {
   // Generate encrypted verification data
   const verificationData = generateVerificationData(sessionId, passphrase);
   
+  if (AUTH_CONSTANTS.DEBUG_MODE) {
+    console.log(`Sending join request for session '${sessionId}'`);
+    console.log('Client ID:', socket.id);
+  }
+  
+  // Get browser information for enhanced client identification
+  const browserInfo = getBrowserInfo();
+  
   // Send join request with encrypted verification data
   socket.emit('request-session-join', {
     sessionId,
-    encryptedVerification: verificationData
+    encryptedVerification: verificationData,
+    browserInfo
   }, (response) => {
+    if (AUTH_CONSTANTS.DEBUG_MODE) {
+      console.log('Join request response:', response);
+    }
+    
     if (response.accepted) {
       updateStatus('Join request sent. Waiting for verification...');
+      
+      // Save session data now for potential later use
+      saveSessionData(sessionId, passphrase);
       
       // Set up verification timeout
       setTimeout(() => {
@@ -143,7 +172,15 @@ function requestToJoinSession(sessionId, passphrase, resolve, reject) {
  * @param {Function} reject - Promise reject function
  */
 function createNewSession(sessionId, passphrase, resolve, reject) {
+  if (AUTH_CONSTANTS.DEBUG_MODE) {
+    console.log(`Creating new session '${sessionId}'`);
+  }
+  
   socket.emit('create-new-session', { sessionId }, (response) => {
+    if (AUTH_CONSTANTS.DEBUG_MODE) {
+      console.log('Create session response:', response);
+    }
+    
     if (response.success) {
       // Save session data locally (passphrase never sent to server)
       saveSessionData(sessionId, passphrase);
@@ -169,6 +206,10 @@ function createNewSession(sessionId, passphrase, resolve, reject) {
 function handleJoinRequestVerification(data) {
   const { sessionId, encryptedVerification, clientId } = data;
   
+  if (AUTH_CONSTANTS.DEBUG_MODE) {
+    console.log(`Received verification request for client ${clientId} in session ${sessionId}`);
+  }
+  
   // Get current session data
   const sessionData = getSessionData();
   if (!sessionData || sessionId !== sessionData.sessionId) {
@@ -181,12 +222,24 @@ function handleJoinRequestVerification(data) {
     const { passphrase } = sessionData;
     let verified = false;
     
+    if (AUTH_CONSTANTS.DEBUG_MODE) {
+      console.log('Attempting to decrypt verification data...');
+    }
+    
     // Decrypt using our passphrase
     const decrypted = decryptVerification(encryptedVerification, passphrase);
     
     // Verify expected text
     const expected = sessionId + AUTH_CONSTANTS.VERIFICATION_TEXT;
     verified = (decrypted === expected);
+    
+    if (AUTH_CONSTANTS.DEBUG_MODE) {
+      console.log(`Verification result: ${verified ? 'APPROVED' : 'DENIED'}`);
+      if (!verified) {
+        console.log(`Expected: "${expected}"`);
+        console.log(`Decrypted: "${decrypted}"`);
+      }
+    }
     
     // Send verification result to server
     socket.emit('submit-verification-result', {
@@ -198,6 +251,8 @@ function handleJoinRequestVerification(data) {
     console.log(`Verification ${verified ? 'approved' : 'denied'} for client ${clientId}`);
   } catch (err) {
     console.error('Error during verification:', err);
+    console.error('Detailed error info:', err.message);
+    console.error('Encrypted data was:', encryptedVerification);
     
     // Deny verification on error
     socket.emit('submit-verification-result', {
@@ -214,6 +269,10 @@ function handleJoinRequestVerification(data) {
  */
 function handleVerificationResult(data) {
   const { approved, sessionId } = data;
+  
+  if (AUTH_CONSTANTS.DEBUG_MODE) {
+    console.log(`Received verification result for session ${sessionId}: ${approved ? 'Approved' : 'Denied'}`);
+  }
   
   if (approved) {
     // Get session data (passphrase is only stored locally)
@@ -365,4 +424,48 @@ export function logout() {
   
   // Redirect to login page
   window.location.href = '/';
+}
+
+/**
+ * Get browser information for user-agent tracking
+ * @returns {Object} Browser information object
+ */
+function getBrowserInfo() {
+  const userAgent = navigator.userAgent;
+  let browserName = 'Unknown';
+  let osName = 'Unknown';
+  
+  // Detect browser
+  if (userAgent.includes('Firefox')) {
+    browserName = 'Firefox';
+  } else if (userAgent.includes('Chrome')) {
+    browserName = 'Chrome';
+  } else if (userAgent.includes('Safari')) {
+    browserName = 'Safari';
+  } else if (userAgent.includes('Edge')) {
+    browserName = 'Edge';
+  } else if (userAgent.includes('MSIE') || userAgent.includes('Trident/')) {
+    browserName = 'Internet Explorer';
+  }
+  
+  // Detect OS
+  if (userAgent.includes('Windows')) {
+    osName = 'Windows';
+  } else if (userAgent.includes('Mac OS')) {
+    osName = 'MacOS';
+  } else if (userAgent.includes('Linux')) {
+    osName = 'Linux';
+  } else if (userAgent.includes('Android')) {
+    osName = 'Android';
+  } else if (userAgent.includes('iOS')) {
+    osName = 'iOS';
+  }
+  
+  return {
+    name: browserName,
+    os: osName,
+    userAgent,
+    windowId: Math.random().toString(36).substring(2, 10), // Generate a unique window ID
+    timestamp: Date.now()
+  };
 }
