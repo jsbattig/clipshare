@@ -230,10 +230,11 @@ io.on('connection', (socket) => {
         const sessionInfo = sessionManager.getSessionInfo(sessionId);
         console.log(`DEBUG - Session ${sessionId} info:`, JSON.stringify(sessionInfo, null, 2));
         
+        // Check active clients first
         const clientsList = sessionManager.getSessionClientsInfo(sessionId);
-        console.log(`DEBUG - Session ${sessionId} has ${clientsList.length} clients`);
+        console.log(`DEBUG - Session ${sessionId} has ${clientsList.length} active clients`);
         
-        // Log each client's info to debug persistent ID storage
+        // Log each active client's info to debug persistent ID storage
         clientsList.forEach(client => {
           console.log(`Client ${client.id} info:`);
           console.log(`- Browser: ${client.browserName}`);
@@ -249,6 +250,30 @@ io.on('connection', (socket) => {
             foundPreviousSession = true;
           }
         });
+        
+        // If not found in active clients, check historical clients
+        if (!foundPreviousSession) {
+          console.log(`DEBUG - Checking historical clients for session ${sessionId}`);
+          
+          // We need to use sessionManager to access historical clients
+          const sessionData = sessionManager.getSessionData(sessionId);
+          if (sessionData && sessionData.historicalClients) {
+            // Look for matching persistent ID in historical clients
+            const historicalClient = sessionData.historicalClients[persistentId];
+          
+            if (historicalClient) {
+              console.log(`MATCH FOUND in historical clients! ${persistentId}`);
+              console.log(`- Last socket ID: ${historicalClient.lastSocketId}`);
+              console.log(`- Last seen: ${new Date(historicalClient.lastSeen).toISOString()}`);
+              console.log(`- Was authorized: ${historicalClient.wasAuthorized}`);
+              
+              oldSocketId = historicalClient.lastSocketId;
+              sessionToRejoin = sessionId;
+              wasAuthorized = historicalClient.wasAuthorized;
+              foundPreviousSession = true;
+            }
+          }
+        }
       });
       
       if (foundPreviousSession && sessionToRejoin) {

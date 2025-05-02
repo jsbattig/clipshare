@@ -123,6 +123,7 @@ function createNewSession(sessionId) {
     createdAt: new Date(),
     clients: [],
     authorizedClients: new Set(), // Track authorized clients
+    historicalClients: {}, // Track previously authorized clients that have disconnected
     lastHeartbeat: Date.now()
   };
   
@@ -635,6 +636,32 @@ function addClientWithInfo(sessionId, clientId, clientInfo, authorized = false) 
  */
 function removeClientFromSession(sessionId, clientId) {
   if (sessions[sessionId]) {
+    // Check if this client was authorized before we remove it
+    const wasAuthorized = sessions[sessionId].authorizedClients?.has(clientId);
+    
+    // Get client info before we remove it
+    const clientInfo = sessions[sessionId].clientsInfo?.[clientId];
+    
+    // Initialize historical clients if it doesn't exist
+    if (!sessions[sessionId].historicalClients) {
+      sessions[sessionId].historicalClients = {};
+    }
+    
+    // If this client has persistentId and was authorized, add to historical clients
+    if (clientInfo && clientInfo.browserInfo && clientInfo.browserInfo.persistentId) {
+      const persistentId = clientInfo.browserInfo.persistentId;
+      
+      console.log(`Storing historical client info for ${persistentId} (was socket ${clientId})`);
+      
+      // Store client info in historical clients by persistent ID
+      sessions[sessionId].historicalClients[persistentId] = {
+        lastSocketId: clientId,
+        lastSeen: Date.now(),
+        wasAuthorized: wasAuthorized,
+        clientInfo: { ...clientInfo }
+      };
+    }
+    
     // Remove from clients array
     sessions[sessionId].clients = sessions[sessionId].clients.filter(id => id !== clientId);
     
@@ -696,6 +723,15 @@ function getSessionInfo(sessionId) {
   };
   
   return sessionCopy;
+}
+
+/**
+ * Get complete session data for a session
+ * @param {string} sessionId - The session identifier
+ * @returns {Object|null} The complete session data or null if not found
+ */
+function getSessionData(sessionId) {
+  return sessions[sessionId] || null;
 }
 
 /**
@@ -982,7 +1018,8 @@ module.exports = {
   removeClientFromSession,
   getSessionClients,
   getSessionClientsInfo,
-  getSessionInfo, // Added this missing export
+  getSessionInfo,
+  getSessionData, // Add the new function to the exports
   getClientCount,
   isClientActive,
   isClientAuthorized,
