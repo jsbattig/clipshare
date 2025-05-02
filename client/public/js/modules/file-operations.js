@@ -112,7 +112,7 @@ export async function handleSingleFileUpload(file, onFileProcessed) {
     
     // LARGE FILES: Use Web Worker for encryption
     // Small files: Use async encryption method
-    if (file.size > 500000) { // 500KB threshold for using worker
+    if (file.size > 50000) { // 50KB threshold for using worker - lowered from 500KB to handle medium files better
       await processLargeFileWithWorker(file, fileContent, onFileProcessed);
     } else {
       await processFileWithAsyncEncryption(file, fileContent, onFileProcessed);
@@ -475,7 +475,7 @@ export async function createAndShareZip(files, onZipCreated) {
           
           // ZIP archives are usually large - use Web Worker for larger ZIPs
           // and async encryption for smaller ones
-          if (fileData.fileSize > 500000) { // 500KB threshold for using worker
+          if (fileData.fileSize > 50000) { // 50KB threshold for using worker - lowered to match file threshold
             console.log('Using Web Worker for large ZIP archive encryption');
             try {
               // Process ZIP with worker
