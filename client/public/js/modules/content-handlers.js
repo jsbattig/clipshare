@@ -290,98 +290,44 @@ async function copyImageToClipboard() {
  * Download the current file
  */
 export function downloadFile() {
-  if (!sharedFile || !sharedFile.content) {
+  if (!sharedFile) {
     UIManager.displayMessage('No file available to download', 'error', 3000);
     return;
   }
   
   try {
-    // Get session data for decryption
-    const sessionData = Session.getCurrentSession();
-    if (!sessionData || !sessionData.passphrase) {
-      console.error('Cannot decrypt file: No valid session passphrase');
-      UIManager.displayMessage('Cannot download: Missing decryption key', 'error', 5000);
+    // IMPORTANT: Choose the best source of file data
+    // 1. For sender: Use _originalData which contains the unencrypted original
+    // 2. For receiver: Use the already decrypted data stored in sharedFile
+    const fileToDownload = sharedFile._originalData || sharedFile;
+    
+    // If content is missing or invalid (shouldn't happen with our changes)
+    if (!fileToDownload.content) {
+      console.error('File content missing for download');
+      UIManager.displayMessage('Cannot download: File content missing', 'error', 3000);
       return;
     }
     
-    // Create a copy of the file data to decrypt
-    const fileToDownload = {...sharedFile};
-    
-    // Check if content is encrypted (starts with the AES marker)
-    if (typeof fileToDownload.content === 'string' && fileToDownload.content.startsWith('U2FsdGVk')) {
-      console.log('Encrypted content detected, attempting to decrypt full content string');
-      
-      try {
-        // Decrypt the ENTIRE content string - this is a full AES encrypted string
-        // not a data URL with an encrypted part
-        const decryptedContent = decryptData(fileToDownload.content, sessionData.passphrase);
-        console.log('Successfully decrypted file content for download');
-        fileToDownload.content = decryptedContent;
-      } catch (decryptErr) {
-        console.error('Failed to decrypt file content:', decryptErr);
-        UIManager.displayMessage('Download failed: Could not decrypt file content', 'error', 5000);
-        return;
-      }
-    }
-    
-    // If content still starts with "data:" but contains "U2FsdGVk", it might be a data URL with encrypted content
-    // This is a fallback for potentially different encryption patterns
-    if (typeof fileToDownload.content === 'string' && 
-        fileToDownload.content.startsWith('data:') && 
-        fileToDownload.content.includes('U2FsdGVk')) {
-      
-      console.log('Found data URL with encrypted content, attempting secondary decryption');
-      
-      // Extract the MIME type and base64 part
-      const matches = fileToDownload.content.match(/^data:([^;]+);base64,(.+)$/);
-      if (matches && matches.length === 3) {
-        const mimeType = matches[1];
-        const encryptedContent = matches[2];
-        
-        try {
-          const decryptedContent = decryptData(encryptedContent, sessionData.passphrase);
-          console.log('Successfully decrypted file content part for download');
-          fileToDownload.content = `data:${mimeType};base64,${decryptedContent}`;
-        } catch (decryptErr) {
-          console.error('Failed to decrypt partial file content:', decryptErr);
-          // Continue with what we have - don't return
-        }
-      }
-    }
-    
-    // Use original filename if available on source client
-    if (fileToDownload._displayFileName) {
-      console.log('Using original filename for download:', fileToDownload._displayFileName);
-      fileToDownload.fileName = fileToDownload._displayFileName;
-    } 
-    // Otherwise decrypt filename if it appears to be encrypted
-    else if (fileToDownload.fileName && fileToDownload.fileName.startsWith('U2FsdGVk')) {
-      try {
-        fileToDownload.fileName = decryptData(fileToDownload.fileName, sessionData.passphrase);
-        console.log('Successfully decrypted filename for download:', fileToDownload.fileName);
-      } catch (decryptErr) {
-        console.error('Failed to decrypt filename:', decryptErr);
-        fileToDownload.fileName = 'download'; // Fallback to generic name
-      }
-    }
-    
-    // Create and trigger the download with decrypted data
+    // No need to decrypt - we should have clean content now
+    // Create download link with already decrypted/original content
     const linkEl = document.createElement('a');
     linkEl.href = fileToDownload.content;
-    linkEl.download = fileToDownload.fileName || 'download';
     
-    // Log download attempt for debugging
+    // Use the best available filename
+    const downloadFilename = fileToDownload.fileName || sharedFile.fileName || 'download';
+    linkEl.download = downloadFilename;
+    
     console.log('Initiating download with:');
-    console.log('- Filename:', fileToDownload.fileName);
+    console.log('- Filename:', downloadFilename);
     console.log('- Content type:', typeof fileToDownload.content);
     console.log('- Content starts with:', fileToDownload.content.substring(0, 50) + '...');
     
-    // Append to document temporarily
+    // Append to document temporarily to trigger download
     document.body.appendChild(linkEl);
     linkEl.click();
     document.body.removeChild(linkEl);
     
-    UIManager.displayMessage(`Downloading: ${fileToDownload.fileName}`, 'success', 3000);
+    UIManager.displayMessage(`Downloading: ${downloadFilename}`, 'success', 3000);
   } catch (err) {
     console.error('Download failed:', err);
     UIManager.displayMessage('Failed to download file: ' + err.message, 'error', 3000);

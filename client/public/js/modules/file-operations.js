@@ -86,17 +86,23 @@ export function handleSingleFileUpload(file, onFileProcessed) {
         try {
           console.log(`Encrypting file '${file.name}' before sending`);
           
-          // Store original filename before encryption
-          const originalFilename = file.name;
+          // CRITICAL: Store a complete copy of the original file data
+          // before encryption for local use (download, display)
+          const originalFileData = {...fileData};
           
-          // Encrypt the file data
+          // Encrypt the file data for transmission
           const encryptedFileData = encryptClipboardContent(fileData, sessionData.passphrase);
           
-          // Preserve original filename for display on source client
-          encryptedFileData._displayFileName = originalFilename;
+          // IMPORTANT: Store reference to the original unencrypted data
+          // with the encrypted data for local operations
+          encryptedFileData._originalData = originalFileData;
+          
+          // Also preserve original filename for display 
+          // (backwards compatibility with existing code)
+          encryptedFileData._displayFileName = file.name;
           
           onFileProcessed(encryptedFileData);
-          UIManager.displayMessage(`File "${originalFilename}" encrypted and processed`, 'success', 3000);
+          UIManager.displayMessage(`File "${file.name}" encrypted and processed`, 'success', 3000);
         } catch (error) {
           console.error('Failed to encrypt file:', error);
           UIManager.displayMessage('Failed to encrypt file.', 'error', 5000);

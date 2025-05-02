@@ -269,45 +269,101 @@ function handleFileBroadcast(fileData) {
   // Always log what we received without exposing sensitive content
   console.log('Received shared file from other client');
   
-  // Check if filename is encrypted
+  // CRITICAL CHANGE: Completely decrypt the file data upon receipt
+  try {
+    const sessionData = Session.getCurrentSession();
+    if (sessionData && sessionData.passphrase) {
+      console.log('Fully decrypting received file data...');
+      
+      // Create a completely decrypted copy of the file data
+      const decryptedFile = {...fileData};
+      
+      // Decrypt filename if needed
+      if (fileData.fileName && fileData.fileName.startsWith('U2FsdGVk')) {
+        try {
+          decryptedFile.fileName = decryptData(fileData.fileName, sessionData.passphrase);
+          console.log('Successfully decrypted filename:', decryptedFile.fileName);
+        } catch (err) {
+          console.error('Failed to decrypt filename:', err);
+          // Keep the encrypted version if decryption fails
+        }
+      }
+      
+      // Decrypt content if needed
+      if (fileData.content && typeof fileData.content === 'string' && fileData.content.startsWith('U2FsdGVk')) {
+        try {
+          decryptedFile.content = decryptData(fileData.content, sessionData.passphrase);
+          console.log('Successfully decrypted file content');
+        } catch (err) {
+          console.error('Failed to decrypt file content:', err);
+          // Keep the encrypted version if decryption fails
+        }
+      }
+      
+      // Keep other metadata
+      if (fileData.fileType && fileData.fileType.startsWith('U2FsdGVk')) {
+        try {
+          decryptedFile.fileType = decryptData(fileData.fileType, sessionData.passphrase);
+        } catch (err) {
+          // Keep encrypted version if decryption fails
+        }
+      }
+      
+      // Store the fully decrypted original data for direct access
+      decryptedFile._originalData = {...decryptedFile};
+      
+      // Store this fully decrypted version for all future operations
+      if (fileUpdateCallback) {
+        console.log('Storing fully decrypted file in memory for later use');
+        fileUpdateCallback(decryptedFile);
+      }
+      
+      // Show notification with the decrypted filename
+      UIManager.displayMessage(`File received: ${decryptedFile.fileName || 'Unknown file'}`, 'info', 5000);
+      return;
+    }
+  } catch (error) {
+    console.error('Failed to fully decrypt file data:', error);
+  }
+  
+  // Fallback behavior if decryption failed
+  // Check if filename is encrypted for display purposes only
   let displayName = 'file';
   if (fileData.fileName) {
     if (fileData.fileName.startsWith('U2FsdGVk')) {
-      console.log('Received file with encrypted filename, attempting to decrypt for display');
+      console.log('Falling back to partial decryption for display');
       
       try {
-        // Get session data for decryption
         const sessionData = Session.getCurrentSession();
         if (sessionData && sessionData.passphrase) {
-          // Try to decrypt just the filename for display purposes
           const tempObject = {
             type: 'file',
             fileName: fileData.fileName
           };
           
           const decrypted = decryptClipboardContent(tempObject, sessionData.passphrase);
-          if (decrypted && decrypted.fileName && !decrypted.fileName.startsWith('U2FsdGVk')) {
+          if (decrypted && decrypted.fileName) {
             displayName = decrypted.fileName;
-            console.log('Successfully decrypted filename for display:', displayName);
+            console.log('Partial decryption successful for display:', displayName);
             
-            // Store the decrypted filename for UI display and downloads
+            // Store for UI display
             fileData._displayFileName = displayName;
           }
         }
-      } catch (error) {
-        console.error('Error decrypting filename for display:', error);
+      } catch (err) {
+        console.error('Partial decryption failed:', err);
       }
     } else {
       displayName = fileData.fileName;
     }
   }
   
-  // Store the shared file and update UI
+  // Store the partially decrypted file as last resort
   if (fileUpdateCallback) {
     fileUpdateCallback(fileData);
   }
   
-  // Show notification with the decrypted filename if possible
+  // Show notification with best available filename
   UIManager.displayMessage(`File received: ${displayName}`, 'info', 5000);
 }
 
