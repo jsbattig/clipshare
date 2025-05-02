@@ -287,35 +287,99 @@ async function copyImageToClipboard() {
 }
 
 /**
+ * Helper function to convert data URL to Blob and download
+ * Much more reliable than using data URLs directly in href
+ * @param {string} dataUrl - The data URL to download
+ * @param {string} filename - The filename to use for download
+ * @returns {boolean} Whether the download was successful
+ */
+function downloadAsBlob(dataUrl, filename) {
+  try {
+    console.log('Converting data URL to Blob for download');
+    
+    // Check if we have a valid data URL
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+      console.error('Invalid data URL provided:', dataUrl?.substring(0, 30) + '...');
+      return false;
+    }
+    
+    // Parse the data URL
+    const parts = dataUrl.split(';base64,');
+    if (parts.length !== 2) {
+      console.error('Invalid data URL format:', dataUrl.substring(0, 30) + '...');
+      return false;
+    }
+    
+    // Get content type and base64 data
+    const contentType = parts[0].split(':')[1];
+    const base64Data = parts[1];
+    
+    // Convert base64 to binary
+    const raw = window.atob(base64Data);
+    const rawLength = raw.length;
+    const uInt8Array = new Uint8Array(rawLength);
+    
+    for (let i = 0; i < rawLength; ++i) {
+      uInt8Array[i] = raw.charCodeAt(i);
+    }
+    
+    // Create Blob and URL
+    const blob = new Blob([uInt8Array], {type: contentType});
+    const url = URL.createObjectURL(blob);
+    
+    console.log('Blob created successfully:', {
+      size: blob.size,
+      type: blob.type,
+      url: url.substring(0, 30) + '...'
+    });
+    
+    // Create download link
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    
+    // Trigger download
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    
+    // Clean up the URL after a short delay
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    
+    console.log('Download initiated via Blob');
+    return true;
+  } catch (err) {
+    console.error('Error in downloadAsBlob:', err);
+    return false;
+  }
+}
+
+/**
  * Download the current file
  */
 export function downloadFile() {
   console.log('========== DOWNLOAD DEBUG START ==========');
   
-  // SIMPLIFIED SENDER-SIDE APPROACH:
+  // IMPROVED SENDER-SIDE APPROACH:
   // Check for globally stored original file data first (sender side)
   if (window.originalFileData && window.originalFileData.content) {
     console.log('SENDER SIDE: Using globally stored original file data');
     console.log('Original filename:', window.originalFileData.fileName);
-    console.log('Content starts with:', window.originalFileData.content.substring(0, 50) + '...');
+    console.log('Content type:', typeof window.originalFileData.content);
     
-    try {
-      // Create download with original content - guaranteed to be valid
-      const linkEl = document.createElement('a');
-      linkEl.href = window.originalFileData.content; // Direct data URL from FileReader
-      linkEl.download = window.originalFileData.fileName;
-      
-      // Append to document temporarily to trigger download
-      document.body.appendChild(linkEl);
-      linkEl.click();
-      document.body.removeChild(linkEl);
-      
-      console.log('Download initiated with original data');
+    // Use Blob-based download instead of direct data URL
+    const success = downloadAsBlob(
+      window.originalFileData.content,
+      window.originalFileData.fileName
+    );
+    
+    if (success) {
       UIManager.displayMessage(`Downloading: ${window.originalFileData.fileName}`, 'success', 3000);
       console.log('========== DOWNLOAD DEBUG END ==========');
       return; // Exit early - no need for complex handling
-    } catch (err) {
-      console.error('Error using global originalFileData:', err);
+    } else {
+      console.error('Blob download failed, falling back to alternative methods');
       // Continue to fallback approaches
     }
   }

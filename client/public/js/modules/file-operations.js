@@ -332,7 +332,7 @@ export async function createAndShareZip(files, onZipCreated) {
 }
 
 /**
- * Download shared file
+ * Download shared file using Blob approach for better reliability
  * @param {Object} fileData - File data object
  */
 export function downloadSharedFile(fileData) {
@@ -342,25 +342,68 @@ export function downloadSharedFile(fileData) {
   }
   
   try {
-    // Create download link
-    const linkEl = document.createElement('a');
-    linkEl.href = fileData.content;
-    linkEl.download = fileData.fileName || 'download-file';
-    linkEl.style.display = 'none';
-    
-    // Add to document and trigger click
-    document.body.appendChild(linkEl);
-    linkEl.click();
-    
-    // Clean up
-    setTimeout(() => {
-      document.body.removeChild(linkEl);
-    }, 100);
-    
-    UIManager.displayMessage(`File "${fileData.fileName}" downloaded successfully`, 'success', 3000);
+    // Use Blob-based approach for more reliable downloads
+    if (fileData.content.startsWith('data:')) {
+      // Parse the data URL
+      const parts = fileData.content.split(';base64,');
+      if (parts.length !== 2) {
+        throw new Error('Invalid data URL format');
+      }
+      
+      // Get content type and base64 data
+      const contentType = parts[0].split(':')[1];
+      const base64Data = parts[1];
+      
+      // Convert base64 to binary
+      const raw = window.atob(base64Data);
+      const uInt8Array = new Uint8Array(raw.length);
+      
+      for (let i = 0; i < raw.length; ++i) {
+        uInt8Array[i] = raw.charCodeAt(i);
+      }
+      
+      // Create Blob and URL
+      const blob = new Blob([uInt8Array], {type: contentType});
+      const url = URL.createObjectURL(blob);
+      
+      // Create download link
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileData.fileName || 'download-file';
+      a.style.display = 'none';
+      
+      // Trigger download
+      document.body.appendChild(a);
+      a.click();
+      
+      // Clean up
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+      
+      UIManager.displayMessage(`File "${fileData.fileName}" downloaded successfully`, 'success', 3000);
+    } else {
+      // Fallback to old method if not a data URL (should not happen)
+      console.warn('Content is not a data URL, using fallback method');
+      
+      const linkEl = document.createElement('a');
+      linkEl.href = fileData.content;
+      linkEl.download = fileData.fileName || 'download-file';
+      linkEl.style.display = 'none';
+      
+      document.body.appendChild(linkEl);
+      linkEl.click();
+      
+      setTimeout(() => {
+        document.body.removeChild(linkEl);
+      }, 100);
+      
+      UIManager.displayMessage(`File "${fileData.fileName}" downloaded successfully`, 'success', 3000);
+    }
   } catch (err) {
     console.error('Download failed:', err);
-    UIManager.displayMessage('Failed to download file: ' + (err.message || 'Unknown error'), 'error');
+    UIManager.displayMessage('Failed to download file: ' + (err.message || 'Unknown error'), 'error', 5000);
   }
 }
 
