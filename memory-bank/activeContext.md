@@ -10,6 +10,21 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Major File Handling Encryption Fix (May 2, 2025):**
+- Fixed critical issues with encrypted file handling on both sender and receiver sides:
+  - Files were displaying encrypted filenames on sender side
+  - Download attempts showed "file downloaded successfully" but actually failed
+  - Browser showed "Network issue" errors when attempting to download files
+  - Success messages incorrectly displayed encrypted filenames
+- Implemented a comprehensive storage-based approach:
+  - **Sender side:** Store complete unencrypted original file (`_originalData`) before encryption
+  - **Receiver side:** Fully decrypt all file data immediately upon receipt and store decrypted version
+  - **Download handling:** Use original unencrypted file directly without trying to decrypt at download time
+- Fixed root cause: Previously attempting to decrypt content at usage time rather than at receipt time
+- Key insight: File data should be encrypted only for transmission, but stored decrypted in memory
+- Added extensive logging and better error handling for encryption/decryption operations
+- Maintained security with content still encrypted during transmission between clients
+
 **Fixed Encrypted Filename Display and Download Issues (May 2, 2025):**
 - Fixed multiple issues with file display and download functionality:
   - Fixed source-side issue showing encrypted filenames instead of original filenames
