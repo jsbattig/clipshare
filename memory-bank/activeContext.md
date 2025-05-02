@@ -17,6 +17,14 @@ Initial implementation of the application with:
 - Docker and Docker Compose configuration
 - GitHub integration with Actions workflow
 
+**Connected Devices Display Fix (May 2, 2025):**
+- Fixed issue where client name wasn't appearing in Connected Devices panel after login redirect
+- Added client name persistence through page redirect from login to main app
+- Modified app page socket initialization to include client name from stored session data
+- Added client name to client-identity event sent after connecting
+- Implemented immediate client list update mechanism to avoid waiting for ping cycle
+- Enhanced debugging to trace client name flow throughout the entire authentication process
+
 **Client Name Flow Fix (May 2, 2025):**
 - Fixed critical socket connection issue where client name wasn't properly passed to server
 - Enhanced socket connection creation to force new connection with updated client name
