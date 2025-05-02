@@ -34,6 +34,14 @@ function initializeSocket() {
     secure: window.location.protocol === 'https:'
   });
   
+  // Expose the socket instance globally for UI functions to access
+  window.socketInstance = socket;
+  
+  // Debug socket connection state
+  socket.on('connect', () => {
+    console.log('Socket connected with ID:', socket.id);
+  });
+  
   return socket;
 }
 

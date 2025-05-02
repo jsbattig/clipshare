@@ -206,9 +206,8 @@ function createNewSession(sessionId, passphrase, resolve, reject) {
 function handleJoinRequestVerification(data) {
   const { sessionId, encryptedVerification, clientId } = data;
   
-  if (AUTH_CONSTANTS.DEBUG_MODE) {
-    console.log(`Received verification request for client ${clientId} in session ${sessionId}`);
-  }
+  console.log(`VERIFICATION REQUEST RECEIVED:`, data);
+  console.log(`Current socket ID: ${window.socketInstance?.id}`);
   
   // Get current session data
   const sessionData = getSessionData();
@@ -216,6 +215,8 @@ function handleJoinRequestVerification(data) {
     console.error('Received verification request for unknown session');
     return;
   }
+  
+  console.log(`Session data matches, proceeding with verification for session: ${sessionId}`);
   
   // Attempt to decrypt and verify
   try {

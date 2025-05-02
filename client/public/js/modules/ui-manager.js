@@ -275,9 +275,12 @@ export function updateConnectedDevices(clients) {
     return;
   }
   
-  // Get the current client socketId for comparison
-  const socket = io?.sockets?.socket || { id: 'unknown' };
-  const currentClientId = socket.id;
+  // Get the current client socketId for comparison using the globally exposed socket
+  const currentClientId = window.socketInstance?.id || 'unknown';
+  
+  // Debug information 
+  console.log('Current client ID:', currentClientId);
+  console.log('All clients:', clients);
   
   // Count active clients for accurate display
   let activeClientCount = 0;

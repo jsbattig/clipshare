@@ -259,13 +259,30 @@ io.on('connection', (socket) => {
     const room = io.sockets.adapter.rooms.get(sessionId);
     const connectedSocketIds = room ? Array.from(room) : [];
     
-    // Filter authorized clients to only those that are actually connected
-    const connectedAuthorizedClients = authorizedClients.filter(id => 
-      connectedSocketIds.includes(id));
-    
     console.log(`Debug info for session ${sessionId}:`);
     console.log(`- Total authorized clients: ${authorizedClients.length}`);
     console.log(`- Connected sockets: ${connectedSocketIds.length}`);
+    console.log(`- Connected socket IDs: ${JSON.stringify(connectedSocketIds)}`);
+    console.log(`- Authorized client IDs: ${JSON.stringify(authorizedClients)}`);
+    
+    // More robust check for connected sockets
+    const connectedAuthorizedClients = [];
+    
+    // Check each authorized client to see if it's really connected
+    for (const authId of authorizedClients) {
+      // Check both the room membership and get the actual socket
+      const inRoom = connectedSocketIds.includes(authId);
+      const socket = io.sockets.sockets.get(authId);
+      
+      if (inRoom && socket && socket.connected) {
+        connectedAuthorizedClients.push(authId);
+        console.log(`Verified client ${authId} is connected and authorized`);
+      } else {
+        // Log why it's not connected
+        console.log(`Client ${authId} is authorized but not connected: ${inRoom ? 'in room' : 'not in room'}, socket exists: ${!!socket}, connected: ${socket?.connected}`);
+      }
+    }
+    
     console.log(`- Connected authorized clients: ${connectedAuthorizedClients.length}`);
     
     if (connectedAuthorizedClients.length === 0) {
@@ -281,6 +298,7 @@ io.on('connection', (socket) => {
     
     // Send verification request to all connected authorized clients
     connectedAuthorizedClients.forEach(authorizedClientId => {
+      console.log(`Sending verification request to client ${authorizedClientId}`);
       io.to(authorizedClientId).emit('verify-join-request', {
         sessionId,
         clientId,
