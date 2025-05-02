@@ -188,25 +188,36 @@ io.on('connection', (socket) => {
   const queryParams = socket.handshake.query || {};
   const persistentClientId = queryParams.clientIdentity || null;
   const connectionMode = queryParams.mode || 'unknown';
+  const clientName = queryParams.clientName || null;
   
   // Store persistent identity on the socket object for later use
   socket.clientIdentifier = socket.id; // Fallback to socket ID
   socket.persistentIdentity = persistentClientId;
   socket.connectionMode = connectionMode;
   socket.connectionTimestamp = Date.now();
+  socket.clientName = clientName; // Store client name on socket object
   
   console.log(`New client connected: ${socket.id} (${connectionMode} mode)`);
   if (persistentClientId) {
     console.log(`- With persistent identity: ${persistentClientId}`);
   }
+  if (clientName) {
+    console.log(`- With client name: ${clientName}`);
+  }
   
   // Handle client identity information (used for tracking across page changes)
   socket.on('client-identity', (data) => {
-    const { persistentId, reconnecting, socketId, browser } = data;
+    const { persistentId, reconnecting, socketId, browser, clientName } = data;
     
     console.log(`Received identity information from client ${socket.id}:`);
     console.log(`- Persistent ID: ${persistentId}`);
+    console.log(`- Client name: ${clientName || 'not provided'}`);
     console.log(`- Reconnecting: ${reconnecting ? 'yes' : 'no'}`);
+    
+    // Store client name if provided
+    if (clientName) {
+      socket.clientName = clientName;
+    }
     
     // Store updated information
     socket.persistentClientId = persistentId;
@@ -337,7 +348,7 @@ io.on('connection', (socket) => {
     if (approved) {
       console.log(`Verification approved for client ${clientId} in session ${sessionId}`);
       
-      // Get client info if available - ensure persistentId is included
+      // Get client info if available - ensure persistentId and clientName are included
       const clientInfo = {
         id: clientId,
         ip: socket.handshake.address,
@@ -346,12 +357,18 @@ io.on('connection', (socket) => {
           name: socket.browserInfo?.name || 'Unknown',
           os: socket.browserInfo?.os || 'Unknown',
           persistentId: socket.persistentIdentity || socket.persistentClientId,
-          // Include client name and external IP if available
-          clientName: socket.browserInfo?.clientName || null,
-          externalIp: socket.browserInfo?.externalIp || null
+          // Include client name from socket object directly with fallback to browserInfo
+          clientName: socket.clientName || socket.browserInfo?.clientName || null
+          // externalIp removed
         },
         connectedAt: new Date().toISOString()
       };
+      
+      if (SESSION_CONSTANTS.DEBUG_MODE) {
+        console.log(`Client info for ${clientId}:`);
+        console.log(`- Client name: ${clientInfo.browserInfo.clientName}`);
+        console.log(`- Socket client name: ${socket.clientName}`);
+      }
       
       // Add to session with authorized flag - this also marks the client as active
       sessionManager.addClientWithInfo(sessionId, clientId, clientInfo, true);
@@ -509,7 +526,7 @@ io.on('connection', (socket) => {
       // Join socket.io room for this session
       socket.join(sessionId);
       
-      // Capture client information properly including persistent ID
+      // Capture client information properly including persistent ID and client name
       const clientInfo = {
         id: socket.id,
         ip: socket.handshake.address,
@@ -517,9 +534,9 @@ io.on('connection', (socket) => {
           name: "Unknown",
           os: "Unknown",
           persistentId: socket.persistentIdentity || socket.persistentClientId,
-          // Include client name and external IP if available
-          clientName: socket.browserInfo?.clientName || null,
-          externalIp: socket.browserInfo?.externalIp || null
+          // Include client name from socket object directly with fallback to browserInfo
+          clientName: socket.clientName || socket.browserInfo?.clientName || null
+          // externalIp removed
         },
         connectedAt: new Date().toISOString()
       };
@@ -549,7 +566,7 @@ io.on('connection', (socket) => {
   
   // Handle join request
   socket.on('request-session-join', (data, callback) => {
-    const { sessionId, encryptedVerification } = data;
+    const { sessionId, encryptedVerification, clientName } = data;
     
     if (!sessionId || !encryptedVerification) {
       return callback({ 
@@ -563,6 +580,15 @@ io.on('connection', (socket) => {
     
     // Store browser info for later use
     socket.browserInfo = data.browserInfo;
+    
+    // Store client name directly on socket for future reference
+    if (clientName) {
+      socket.clientName = clientName;
+      console.log(`Stored client name on socket: ${clientName}`);
+    } else if (data.browserInfo?.clientName) {
+      socket.clientName = data.browserInfo.clientName;
+      console.log(`Stored client name from browserInfo: ${data.browserInfo.clientName}`);
+    }
     
     // Register join request for verification
     const result = sessionManager.registerJoinRequest(
@@ -591,12 +617,13 @@ io.on('connection', (socket) => {
           name: socket.browserInfo?.name || 'Unknown',
           os: socket.browserInfo?.os || 'Unknown',
           persistentId: socket.persistentIdentity || socket.persistentClientId,
-          // Include client name and external IP if available
-          clientName: socket.browserInfo?.clientName || null,
-          externalIp: socket.browserInfo?.externalIp || null
+          // Prioritize client name from socket object, then from browser info
+          clientName: socket.clientName || socket.browserInfo?.clientName || null
         },
         connectedAt: new Date().toISOString()
       };
+      
+      console.log(`Auto-authorizing client ${socket.id} with name: ${clientInfo.browserInfo.clientName}`);
         
         sessionManager.addClientWithInfo(sessionId, socket.id, clientInfo, true);
         

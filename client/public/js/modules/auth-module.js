@@ -167,11 +167,20 @@ function requestToJoinSession(sessionId, passphrase, resolve, reject, clientName
   // Get browser information for enhanced client identification
   const browserInfo = getBrowserInfo();
   
+  // IMPORTANT FIX: Explicitly set client name in browser info
+  browserInfo.clientName = clientName || browserInfo.clientName;
+  
+  if (AUTH_CONSTANTS.DEBUG_MODE) {
+    console.log(`Including client name in join request: ${clientName}`);
+    console.log('Browser info being sent:', browserInfo);
+  }
+  
   // Send join request with encrypted verification data
   socket.emit('request-session-join', {
     sessionId,
     encryptedVerification: verificationData,
-    browserInfo
+    browserInfo,
+    clientName // Explicitly pass client name separately
   }, (response) => {
     if (AUTH_CONSTANTS.DEBUG_MODE) {
       console.log('Join request response:', response);

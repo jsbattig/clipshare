@@ -330,8 +330,19 @@ export function updateConnectedDevices(clients) {
     
     const deviceName = document.createElement('div');
     deviceName.className = 'device-name';
-    // Use client name if available, otherwise fallback to browser and OS
-    deviceName.textContent = client.browserInfo?.clientName || client.clientName || `${client.browserName} on ${client.osName}`;
+    
+    // Debug log the client data to help diagnose display issues
+    console.log('Client data for UI display:', {
+      id: client.id,
+      clientName: client.clientName,
+      browserInfoClientName: client.browserInfo?.clientName,
+      browserName: client.browserName,
+      osName: client.osName
+    });
+    
+    // Prioritize client name from all possible sources
+    const displayName = client.clientName || client.browserInfo?.clientName || `${client.browserName} on ${client.osName}`;
+    deviceName.textContent = displayName;
     
     const deviceTime = document.createElement('div');
     deviceTime.className = 'device-time';
