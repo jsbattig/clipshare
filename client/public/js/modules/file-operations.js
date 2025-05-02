@@ -332,80 +332,39 @@ export async function createAndShareZip(files, onZipCreated) {
 }
 
 /**
- * Download shared file using Blob approach for better reliability
- * @param {Object} fileData - File data object
+ * Helper utility to convert a data URL to a Blob
+ * @param {string} dataUrl - The data URL to convert
+ * @returns {Blob|null} The resulting Blob or null if failed
  */
-export function downloadSharedFile(fileData) {
-  if (!fileData || !fileData.content) {
-    UIManager.displayMessage('No file to download', 'error', 2000);
-    return;
-  }
-  
+export function dataUrlToBlob(dataUrl) {
   try {
-    // Use Blob-based approach for more reliable downloads
-    if (fileData.content.startsWith('data:')) {
-      // Parse the data URL
-      const parts = fileData.content.split(';base64,');
-      if (parts.length !== 2) {
-        throw new Error('Invalid data URL format');
-      }
-      
-      // Get content type and base64 data
-      const contentType = parts[0].split(':')[1];
-      const base64Data = parts[1];
-      
-      // Convert base64 to binary
-      const raw = window.atob(base64Data);
-      const uInt8Array = new Uint8Array(raw.length);
-      
-      for (let i = 0; i < raw.length; ++i) {
-        uInt8Array[i] = raw.charCodeAt(i);
-      }
-      
-      // Create Blob and URL
-      const blob = new Blob([uInt8Array], {type: contentType});
-      const url = URL.createObjectURL(blob);
-      
-      // Create download link
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileData.fileName || 'download-file';
-      a.style.display = 'none';
-      
-      // Trigger download
-      document.body.appendChild(a);
-      a.click();
-      
-      // Clean up
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 100);
-      
-      UIManager.displayMessage(`File "${fileData.fileName}" downloaded successfully`, 'success', 3000);
-    } else {
-      // Fallback to old method if not a data URL (should not happen)
-      console.warn('Content is not a data URL, using fallback method');
-      
-      const linkEl = document.createElement('a');
-      linkEl.href = fileData.content;
-      linkEl.download = fileData.fileName || 'download-file';
-      linkEl.style.display = 'none';
-      
-      document.body.appendChild(linkEl);
-      linkEl.click();
-      
-      setTimeout(() => {
-        document.body.removeChild(linkEl);
-      }, 100);
-      
-      UIManager.displayMessage(`File "${fileData.fileName}" downloaded successfully`, 'success', 3000);
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+      return null;
     }
+    
+    const parts = dataUrl.split(';base64,');
+    if (parts.length !== 2) {
+      return null;
+    }
+    
+    const contentType = parts[0].split(':')[1];
+    const base64Data = parts[1];
+    const raw = window.atob(base64Data);
+    const uInt8Array = new Uint8Array(raw.length);
+    
+    for (let i = 0; i < raw.length; ++i) {
+      uInt8Array[i] = raw.charCodeAt(i);
+    }
+    
+    return new Blob([uInt8Array], {type: contentType});
   } catch (err) {
-    console.error('Download failed:', err);
-    UIManager.displayMessage('Failed to download file: ' + (err.message || 'Unknown error'), 'error', 5000);
+    console.error('Error converting data URL to Blob:', err);
+    return null;
   }
 }
+
+// Note: downloadSharedFile has been moved to ContentHandlers.downloadFile()
+// to create a unified download path for better consistency
 
 /**
  * Get current dropped files

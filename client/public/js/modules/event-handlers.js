@@ -146,10 +146,9 @@ function setupFileEvents() {
   const downloadFileBtn = getElement('download-file-btn');
   if (downloadFileBtn) {
     downloadFileBtn.addEventListener('click', () => {
-      const sharedFile = ContentHandlers.getSharedFile();
-      if (sharedFile) {
-        FileOperations.downloadSharedFile(sharedFile);
-      }
+      // Use the unified download function from ContentHandlers
+      // This works for both sender and receiver sides
+      ContentHandlers.downloadFile();
     });
   }
   

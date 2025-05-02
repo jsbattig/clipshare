@@ -298,15 +298,21 @@ function downloadAsBlob(dataUrl, filename) {
     console.log('Converting data URL to Blob for download');
     
     // Check if we have a valid data URL
-    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
-      console.error('Invalid data URL provided:', dataUrl?.substring(0, 30) + '...');
+    if (!dataUrl || typeof dataUrl !== 'string') {
+      console.error('Invalid data URL provided - null or not a string');
+      return false;
+    }
+    
+    if (!dataUrl.startsWith('data:')) {
+      console.error('Invalid data URL provided - does not start with "data:"');
+      console.log('Content starts with:', dataUrl.substring(0, 30) + '...');
       return false;
     }
     
     // Parse the data URL
     const parts = dataUrl.split(';base64,');
     if (parts.length !== 2) {
-      console.error('Invalid data URL format:', dataUrl.substring(0, 30) + '...');
+      console.error('Invalid data URL format - could not split into parts');
       return false;
     }
     
@@ -356,136 +362,136 @@ function downloadAsBlob(dataUrl, filename) {
 }
 
 /**
- * Download the current file
+ * Get the best available file data for download
+ * Works consistently for both sender and receiver sides
+ * @returns {Object} File data with clean content and filename
  */
-export function downloadFile() {
-  console.log('========== DOWNLOAD DEBUG START ==========');
+function getBestFileData() {
+  console.log('Finding best file data source for download');
   
-  // IMPROVED SENDER-SIDE APPROACH:
-  // Check for globally stored original file data first (sender side)
-  if (window.originalFileData && window.originalFileData.content) {
-    console.log('SENDER SIDE: Using globally stored original file data');
-    console.log('Original filename:', window.originalFileData.fileName);
-    console.log('Content type:', typeof window.originalFileData.content);
+  // Create result object with defaults
+  const result = {
+    content: null,
+    fileName: 'download',
+    success: false
+  };
+  
+  // PRIORITY 1: Use window.originalFileData if available (original sender data)
+  if (window.originalFileData && 
+      window.originalFileData.content && 
+      typeof window.originalFileData.content === 'string' &&
+      window.originalFileData.content.startsWith('data:')) {
     
-    // Use Blob-based download instead of direct data URL
-    const success = downloadAsBlob(
-      window.originalFileData.content,
-      window.originalFileData.fileName
-    );
+    console.log('PRIORITY 1: Using globally stored original file data');
+    result.content = window.originalFileData.content;
+    result.fileName = window.originalFileData.fileName || result.fileName;
+    result.success = true;
+    return result;
+  }
+  
+  // Exit if no shared file exists
+  if (!sharedFile) {
+    console.error('No shared file available');
+    return result;
+  }
+  
+  // PRIORITY 2: Use sharedFile._originalData if available (compatible with existing code)
+  if (sharedFile._originalData && 
+      sharedFile._originalData.content && 
+      typeof sharedFile._originalData.content === 'string' &&
+      sharedFile._originalData.content.startsWith('data:')) {
     
-    if (success) {
-      UIManager.displayMessage(`Downloading: ${window.originalFileData.fileName}`, 'success', 3000);
-      console.log('========== DOWNLOAD DEBUG END ==========');
-      return; // Exit early - no need for complex handling
-    } else {
-      console.error('Blob download failed, falling back to alternative methods');
-      // Continue to fallback approaches
+    console.log('PRIORITY 2: Using _originalData from sharedFile');
+    result.content = sharedFile._originalData.content;
+    result.fileName = sharedFile._originalData.fileName || sharedFile.fileName || result.fileName;
+    result.success = true;
+    return result;
+  }
+  
+  // PRIORITY 3: If content is already a valid data URL, use it directly
+  if (sharedFile.content && 
+      typeof sharedFile.content === 'string' && 
+      sharedFile.content.startsWith('data:')) {
+    
+    console.log('PRIORITY 3: Using direct data URL from sharedFile');
+    result.content = sharedFile.content;
+    result.fileName = sharedFile.fileName || result.fileName;
+    result.success = true;
+    return result;
+  }
+  
+  // PRIORITY 4: Attempt to decrypt the content if it looks encrypted
+  const sessionData = Session.getCurrentSession();
+  if (sharedFile.content && 
+      typeof sharedFile.content === 'string' && 
+      sharedFile.content.startsWith('U2FsdGVk') && 
+      sessionData?.passphrase) {
+    
+    console.log('PRIORITY 4: Attempting to decrypt encrypted content');
+    try {
+      const decryptedContent = decryptData(sharedFile.content, sessionData.passphrase);
+      if (decryptedContent && decryptedContent.startsWith('data:')) {
+        console.log('Successfully decrypted to valid data URL');
+        result.content = decryptedContent;
+        
+        // Try to get a clean filename too
+        if (sharedFile.fileName && sharedFile.fileName.startsWith('U2FsdGVk')) {
+          try {
+            const tempObj = {
+              type: 'file',
+              fileName: sharedFile.fileName
+            };
+            const decrypted = decryptClipboardContent(tempObj, sessionData.passphrase);
+            if (decrypted && decrypted.fileName) {
+              result.fileName = decrypted.fileName;
+            }
+          } catch (e) {
+            console.error('Failed to decrypt filename:', e);
+          }
+        } else {
+          result.fileName = sharedFile.fileName || result.fileName;
+        }
+        
+        result.success = true;
+        return result;
+      } else {
+        console.error('Decryption did not produce a valid data URL');
+      }
+    } catch (decryptErr) {
+      console.error('Decryption failed:', decryptErr);
     }
   }
   
-  if (!sharedFile) {
+  // If we got here, we couldn't find valid content
+  console.error('Failed to find valid file data for download');
+  return result;
+}
+
+/**
+ * Single unified download function that works for all scenarios
+ * Use this function for ALL file downloads from anywhere in the app
+ */
+export function downloadFile() {
+  console.log('========== UNIFIED DOWNLOAD STARTED ==========');
+  
+  // Get the best file data from any available source
+  const fileData = getBestFileData();
+  
+  if (!fileData.success) {
     UIManager.displayMessage('No file available to download', 'error', 3000);
+    console.log('========== DOWNLOAD FAILED ==========');
     return;
   }
   
-  // Log the state of the shared file and its original data (for debugging)
-  console.log('DOWNLOAD INITIATED - SHARED FILE STATE:', {
-    hasOriginalData: !!sharedFile._originalData,
-    originalContentExists: sharedFile._originalData?.content ? 'Yes' : 'No',
-    originalFileName: sharedFile._originalData?.fileName || 'None',
-    sharedFileName: sharedFile.fileName || 'None',
-    contentStart: (sharedFile.content || '').substring(0, 30) + '...',
-    contentIsEncrypted: (sharedFile.content || '').startsWith('U2FsdGVk'),
-    originalContentIsDataUrl: sharedFile._originalData?.content?.startsWith('data:') || false,
-    currentContentIsDataUrl: sharedFile.content?.startsWith('data:') || false
-  });
+  // Always use our Blob-based approach for consistent, reliable downloads
+  const downloadSuccess = downloadAsBlob(fileData.content, fileData.fileName);
   
-  try {
-    // Get session data for possible decryption
-    const sessionData = Session.getCurrentSession();
-    
-    // Choose the best source of file data
-    // Create a copy to work with
-    let fileToDownload;
-    
-    // Decision making process
-    if (sharedFile._originalData && sharedFile._originalData.content) {
-      console.log('Using _originalData for download (has valid content)');
-      fileToDownload = {...sharedFile._originalData};
-    } else {
-      console.log('No valid _originalData available, using sharedFile directly');
-      fileToDownload = {...sharedFile};
-      
-      // Extra check: If it appears we're on sender side but _originalData is missing
-      if (sharedFile._displayFileName && !sharedFile._originalData) {
-        console.log('WARNING: This appears to be sender (has _displayFileName) but _originalData is missing!');
-      }
-    }
-    
-    // Last resort: check if content needs decryption (for receiver side)
-    if (typeof fileToDownload.content === 'string' && fileToDownload.content.startsWith('U2FsdGVk') && sessionData?.passphrase) {
-      console.log('DECRYPTION: Content appears encrypted, attempting decryption');
-      try {
-        const decryptedContent = decryptData(fileToDownload.content, sessionData.passphrase);
-        if (decryptedContent.startsWith('data:')) {
-          console.log('Decryption succeeded! Content is now a valid data URL');
-          fileToDownload.content = decryptedContent;
-        } else {
-          console.log('Decryption produced non-data-URL:', decryptedContent.substring(0, 30) + '...');
-        }
-      } catch (decryptErr) {
-        console.error('Decryption failed:', decryptErr);
-        // Continue with what we have
-      }
-    }
-    
-    // If content is missing or invalid
-    if (!fileToDownload.content) {
-      console.error('File content missing for download');
-      UIManager.displayMessage('Cannot download: File content missing', 'error', 3000);
-      return;
-    }
-    
-    // Create download link with content
-    const linkEl = document.createElement('a');
-    linkEl.href = fileToDownload.content;
-    
-    // Use the best available filename
-    const downloadFilename = fileToDownload.fileName || sharedFile.fileName || 'download';
-    linkEl.download = downloadFilename;
-    
-    console.log('Initiating download with:');
-    console.log('- Filename:', downloadFilename);
-    console.log('- Content type:', typeof fileToDownload.content);
-    console.log('- Content starts with:', fileToDownload.content.substring(0, 50) + '...');
-    console.log('- Link href starts with:', linkEl.href.substring(0, 50) + '...');
-    
-    // Last check - if href still looks encrypted, one more attempt
-    if (linkEl.href.startsWith('U2FsdGVk') && sessionData?.passphrase) {
-      console.log('FINAL CHECK: href is still encrypted, making one final attempt');
-      try {
-        const finalDecrypted = decryptData(linkEl.href, sessionData.passphrase);
-        if (finalDecrypted.startsWith('data:')) {
-          console.log('Final decryption succeeded, replacing href');
-          linkEl.href = finalDecrypted;
-        }
-      } catch (e) {
-        console.error('Final decryption attempt failed:', e);
-      }
-    }
-    
-    console.log('========== DOWNLOAD DEBUG END ==========');
-    
-    // Append to document temporarily to trigger download
-    document.body.appendChild(linkEl);
-    linkEl.click();
-    document.body.removeChild(linkEl);
-    
-    UIManager.displayMessage(`Downloading: ${downloadFilename}`, 'success', 3000);
-  } catch (err) {
-    console.error('Download failed:', err);
-    UIManager.displayMessage('Failed to download file: ' + err.message, 'error', 3000);
+  if (downloadSuccess) {
+    UIManager.displayMessage(`Downloading: ${fileData.fileName}`, 'success', 3000);
+    console.log('========== DOWNLOAD SUCCEEDED ==========');
+  } else {
+    UIManager.displayMessage('Failed to download file', 'error', 3000);
+    console.log('========== DOWNLOAD FAILED ==========');
   }
 }
 
