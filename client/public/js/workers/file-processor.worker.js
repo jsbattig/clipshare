@@ -47,7 +47,7 @@ self.onmessage = function(e) {
 };
 
 /**
- * Process file for encryption
+ * Process file for encryption - direct file handling version
  * @param {Object} data - File data and processing options
  */
 function processFile(data) {
@@ -61,6 +61,111 @@ function processFile(data) {
       message: 'Starting file processing'
     });
     
+    // Validate required data
+    if (data.file) {
+      // New approach: File is directly passed to worker
+      processRawFile(data);
+    } else if (data.fileData && data.passphrase) {
+      // Legacy approach: File data already read
+      processFileData(data);
+    } else {
+      throw new Error('Missing required data for processing');
+    }
+  } catch (error) {
+    console.error('Worker error processing file:', error);
+    self.postMessage({
+      status: 'error',
+      error: error.message || 'Unknown error in worker'
+    });
+    activeProcessing = false;
+  }
+}
+
+/**
+ * Process a raw File object directly in the worker
+ * @param {Object} data - Object containing the File and options
+ */
+function processRawFile(data) {
+  // First read the file in the worker thread
+  const file = data.file;
+  const passphrase = data.passphrase;
+  
+  if (!file || !passphrase) {
+    throw new Error('Missing file or passphrase');
+  }
+  
+  // Send progress update
+  self.postMessage({
+    status: 'progress',
+    progress: 10,
+    message: 'Reading file in background thread'
+  });
+  
+  // Use FileReader in the worker
+  const reader = new FileReader();
+  
+  reader.onload = function(e) {
+    try {
+      const fileContent = e.target.result;
+      
+      // Send progress update
+      self.postMessage({
+        status: 'progress',
+        progress: 30,
+        message: 'File read complete, preparing for encryption'
+      });
+      
+      // Create file data object to encrypt
+      const fileData = {
+        type: 'file',
+        fileName: data.fileName,
+        fileSize: data.fileSize,
+        fileType: data.fileType || 'application/octet-stream',
+        content: fileContent,
+        timestamp: Date.now()
+      };
+      
+      // Encrypt the file data
+      const encryptedData = encryptClipboardContent(fileData, passphrase);
+      
+      // Send success message back to main thread
+      self.postMessage({
+        status: 'complete',
+        encryptedData: encryptedData,
+        originalName: data.fileName,
+        originalSize: data.fileSize
+      });
+      
+      activeProcessing = false;
+    } catch (error) {
+      console.error('Error processing file after read:', error);
+      self.postMessage({
+        status: 'error',
+        error: error.message || 'Error processing file after reading'
+      });
+      activeProcessing = false;
+    }
+  };
+  
+  reader.onerror = function(e) {
+    console.error('Error reading file in worker:', e);
+    self.postMessage({
+      status: 'error',
+      error: 'Failed to read file in worker thread'
+    });
+    activeProcessing = false;
+  };
+  
+  // Read file as data URL
+  reader.readAsDataURL(file);
+}
+
+/**
+ * Process file data that's already been read
+ * @param {Object} data - Pre-read file data and options
+ */
+function processFileData(data) {
+  try {
     // Validate required data
     if (!data.fileData || !data.passphrase) {
       throw new Error('Missing required data: fileData or passphrase');
@@ -95,12 +200,11 @@ function processFile(data) {
     });
     
     activeProcessing = false;
-    
   } catch (error) {
-    console.error('Worker error processing file:', error);
+    console.error('Worker error processing file data:', error);
     self.postMessage({
       status: 'error',
-      error: error.message || 'Unknown error in worker'
+      error: error.message || 'Unknown error processing file data'
     });
     activeProcessing = false;
   }

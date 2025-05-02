@@ -91,30 +91,31 @@ export async function handleSingleFileUpload(file, onFileProcessed) {
   
   try {
     // Show initial processing message
-    UIManager.displayMessage(`Reading file: ${file.name}...`, 'info', 0);
-    
-    // Read file as data URL
-    const fileContent = await readFileAsDataURL(file);
-    
-    console.log(`File read complete: ${file.name}, size: ${formatFileSize(file.size)}`);
     UIManager.displayMessage(`Processing file: ${file.name}...`, 'info', 0);
     
-    // Store original file data globally for download
-    // This ensures it's always accessible even if references are lost
-    window.originalFileData = {
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type || getMimeTypeFromExtension(file.name),
-      content: fileContent,
-      timestamp: Date.now(),
-      isOriginal: true
-    };
-    
-    // LARGE FILES: Use Web Worker for encryption
-    // Small files: Use async encryption method
-    if (file.size > 50000) { // 50KB threshold for using worker - lowered from 500KB to handle medium files better
-      await processLargeFileWithWorker(file, fileContent, onFileProcessed);
+    // Small files - still use the older approach with async processing on main thread
+    // Larger files - use Web Worker that handles BOTH reading and encrypting the file
+    if (file.size > 50000) { // 50KB threshold for using worker
+      // Process directly in worker (both reading and encryption)
+      await processRawFileWithWorker(file, onFileProcessed);
     } else {
+      // For small files, read in main thread and use async encryption
+      // Read file as data URL
+      const fileContent = await readFileAsDataURL(file);
+      
+      console.log(`Small file read complete: ${file.name}, size: ${formatFileSize(file.size)}`);
+      
+      // Store original file data globally for download
+      window.originalFileData = {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type || getMimeTypeFromExtension(file.name),
+        content: fileContent,
+        timestamp: Date.now(),
+        isOriginal: true
+      };
+      
+      // Process with async encryption (but still on main thread)
       await processFileWithAsyncEncryption(file, fileContent, onFileProcessed);
     }
     
@@ -127,6 +128,153 @@ export async function handleSingleFileUpload(file, onFileProcessed) {
     UIManager.hideDropZone();
     fileTransferInProgress = false;
   }
+}
+
+/**
+ * Process raw file directly with Web Worker (both reading and encryption in worker)
+ * @param {File} file - Raw File object to process
+ * @param {Function} onFileProcessed - Callback for completed processing
+ */
+async function processRawFileWithWorker(file, onFileProcessed) {
+  console.log('Processing raw file directly in Web Worker:', file.name);
+  
+  // Get session data for encryption
+  const sessionData = Session.getCurrentSession();
+  if (!sessionData || !sessionData.passphrase) {
+    console.error('No session passphrase available for encryption');
+    UIManager.displayMessage('Cannot send file: Missing encryption key', 'error', 5000);
+    UIManager.hideDropZone();
+    return;
+  }
+  
+  // Show worker processing message
+  UIManager.displayMessage(`Processing file in background thread: ${file.name}`, 'info', 0);
+  
+  // Store file data for download (we'll update this with actual data from worker when available)
+  window.originalFileData = {
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type || getMimeTypeFromExtension(file.name),
+    timestamp: Date.now(),
+    isOriginal: true,
+    // Content will be filled by worker response
+  };
+  
+  return new Promise((resolve, reject) => {
+    // Get or create worker
+    const worker = getFileWorker();
+    
+    if (!worker) {
+      // Web Workers not supported - fall back to regular processing
+      UIManager.displayMessage('Web Workers not supported - using fallback method', 'info', 3000);
+      
+      // Read file in main thread since worker isn't available
+      readFileAsDataURL(file)
+        .then(fileContent => {
+          // Update global storage with content
+          window.originalFileData.content = fileContent;
+          return processFileWithAsyncEncryption(file, fileContent, onFileProcessed);
+        })
+        .then(resolve)
+        .catch(reject);
+      return;
+    }
+    
+    // Set up message handler for this specific file
+    worker.onmessage = function(e) {
+      const response = e.data;
+      
+      if (response.status === 'progress') {
+        // Update progress message
+        UIManager.displayMessage(
+          `Processing file: ${response.progress}% - ${response.message}`, 
+          'info', 
+          0
+        );
+      } 
+      else if (response.status === 'complete') {
+        console.log('Web Worker completed file processing');
+        
+        // Create the complete processed file data
+        const encryptedFileData = response.encryptedData;
+        
+        // Update global storage with content if worker passes it back
+        if (response.originalContent) {
+          window.originalFileData.content = response.originalContent;
+        }
+        
+        // Add original data reference for download
+        encryptedFileData._originalData = {...window.originalFileData};
+        encryptedFileData._displayFileName = file.name;
+        
+        // Hide the drop zone now that processing is complete
+        UIManager.hideDropZone();
+        
+        // Store in content handlers
+        if (typeof window.ContentHandlers !== 'undefined' && 
+            typeof window.ContentHandlers.setSharedFile === 'function') {
+          console.log('Directly setting shared file with original data in ContentHandlers');
+          window.ContentHandlers.setSharedFile(encryptedFileData);
+        }
+        
+        // Call the callback
+        if (onFileProcessed) {
+          onFileProcessed(encryptedFileData);
+        }
+        
+        UIManager.displayMessage(`File "${file.name}" processed in background thread`, 'success', 3000);
+        resolve();
+      } 
+      else if (response.status === 'error') {
+        console.error('Worker reported error:', response.error);
+        UIManager.displayMessage('Error processing file: ' + response.error, 'error', 5000);
+        UIManager.hideDropZone();
+        reject(new Error(response.error));
+      }
+    };
+    
+    try {
+      // Send the raw file directly to worker for processing
+      worker.postMessage({
+        action: 'process',
+        file: file,  // Pass actual File object
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type || getMimeTypeFromExtension(file.name),
+        passphrase: sessionData.passphrase
+      });
+      
+      console.log('Raw file sent to worker for processing');
+    } catch (error) {
+      // Handle case where the File object can't be transferred
+      console.error('Error sending file to worker:', error);
+      
+      // Fall back to main thread reading with worker processing
+      UIManager.displayMessage('Using fallback file processing method', 'info', 3000);
+      
+      readFileAsDataURL(file)
+        .then(fileContent => {
+          // Update global storage with content
+          window.originalFileData.content = fileContent;
+          
+          // Send content to worker instead of raw file
+          worker.postMessage({
+            action: 'process',
+            fileData: fileContent,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type || getMimeTypeFromExtension(file.name),
+            passphrase: sessionData.passphrase
+          });
+          
+          console.log('File content sent to worker for processing');
+        })
+        .catch(err => {
+          console.error('Error in fallback file reading:', err);
+          reject(err);
+        });
+    }
+  });
 }
 
 /**
