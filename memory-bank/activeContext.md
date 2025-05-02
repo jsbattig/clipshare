@@ -17,6 +17,13 @@ Initial implementation of the application with:
 - Docker and Docker Compose configuration
 - GitHub integration with Actions workflow
 
+**Promise Chain Bug Fix (May 2, 2025):**
+- Fixed authentication promise chain error that was causing uncaught exceptions
+- Identified that `UIManager.updateConnectionStatus()` was being called but didn't exist
+- Added proper Session module import and replaced calls with `Session.setConnectionStatus()`
+- Learned importance of properly completing Promise chains in authentication flows
+- Enhanced debugging and error handling for Promise-based operations
+
 **Recent Troubleshooting (May 1, 2025):**
 - Identified and diagnosed issues with localStorage key inconsistencies
 - Discovered that the application was using both 'clipboard-session' and 'clipshare_session' keys
