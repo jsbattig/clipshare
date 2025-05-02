@@ -8,6 +8,7 @@
 import { CONFIG } from './modules/config.js';
 import * as Utils from './modules/utils.js';
 import * as UIManager from './modules/ui-manager.js';
+import * as Session from './modules/session.js'; // Add Session module import
 import * as ClipboardUtils from './modules/clipboard-monitor.js';
 import * as ContentHandlers from './modules/content-handlers.js';
 import * as FileOperations from './modules/file-operations.js';
@@ -149,8 +150,8 @@ function handleAuthSuccess(sessionData) {
   console.log(`Successfully authenticated in session: ${sessionData.sessionId}`);
   UIManager.displayMessage('Authentication successful!', 'success', 3000);
   
-  // Update connection status
-  UIManager.updateConnectionStatus(true);
+  // Update connection status using Session module
+  Session.setConnectionStatus(true, UIManager.displayMessage);
 }
 
 /**
@@ -161,8 +162,8 @@ function handleAuthFailure(error) {
   console.error('Authentication failed:', error);
   UIManager.displayMessage(`Authentication failed: ${error}`, 'error');
   
-  // Update connection status
-  UIManager.updateConnectionStatus(false);
+  // Update connection status using Session module
+  Session.setConnectionStatus(false, UIManager.displayMessage);
   
   // Redirect to login page after a delay
   setTimeout(() => {
