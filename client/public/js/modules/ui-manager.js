@@ -340,9 +340,30 @@ export function updateConnectedDevices(clients) {
       osName: client.osName
     });
     
-    // Prioritize client name from all possible sources
-    const displayName = client.clientName || client.browserInfo?.clientName || `${client.browserName} on ${client.osName}`;
+    // IMPORTANT: Access socket.js clientName - user entered name takes highest priority
+    // This is needed because sometimes the clientName doesn't make it through all the server transforms
+    const sessionData = localStorage.getItem(CONFIG.storage.sessionKey);
+    let localClientName = null;
+    
+    if (sessionData) {
+      try {
+        const parsedData = JSON.parse(sessionData);
+        localClientName = parsedData.clientName;
+        console.log('Retrieved client name from local storage:', localClientName);
+      } catch (e) {
+        console.error('Error parsing session data:', e);
+      }
+    }
+    
+    // Give highest priority to the locally stored client name for the current client only
+    const displayName = isCurrentClient && localClientName 
+      ? localClientName // Use locally stored name for current client
+      : client.clientName || client.browserInfo?.clientName || `${client.browserName} on ${client.osName}`;
+    
     deviceName.textContent = displayName;
+    
+    // Add additional debug in case name display is still wrong
+    console.log(`Display name selected for client ${client.id}:`, displayName, isCurrentClient ? '(current client)' : '');
     
     const deviceTime = document.createElement('div');
     deviceTime.className = 'device-time';

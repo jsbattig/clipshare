@@ -800,15 +800,21 @@ io.on('connection', (socket) => {
       const clientInfo = {
         id: socket.id,
         ip: socket.handshake.address,
+        // Make clientName a direct property for better access in UI
+        clientName: clientName || socket.clientName,
         browserInfo: {
           ...(browserInfo || {}),
           name: browserInfo?.name || 'Unknown',
           os: browserInfo?.os || 'Unknown',
           // Make sure persistentId is included
-          persistentId: socket.persistentIdentity || socket.persistentClientId
+          persistentId: socket.persistentIdentity || socket.persistentClientId,
+          // Also include clientName in browserInfo for compatibility
+          clientName: clientName || socket.clientName
         },
         connectedAt: new Date().toISOString()
       };
+      
+      console.log(`Join-session client info being added:`, JSON.stringify(clientInfo));
       
       // Add client to session with detailed info
       sessionManager.addClientWithInfo(sessionId, socket.id, clientInfo);

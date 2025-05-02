@@ -744,20 +744,26 @@ function getSessionClientsInfo(sessionId) {
     return [];
   }
   
-  // Return array of client info objects
-  return Object.entries(sessions[sessionId].clientsInfo).map(([clientId, info]) => ({
-    id: clientId,
-    ip: info.ip || 'Unknown',
-    browserName: info.browserInfo?.name || 'Unknown',
-    osName: info.browserInfo?.os || 'Unknown',
-    // Extract client name and external IP from browserInfo
-    clientName: info.browserInfo?.clientName || null,
-    externalIp: info.browserInfo?.externalIp || null,
-    browserInfo: info.browserInfo || {}, // Include full browser info for client lookup
-    connectedAt: info.connectedAt || new Date().toISOString(),
-    lastActivity: info.lastActivity || Date.now(),
-    active: isClientActive(sessionId, clientId)
-  }));
+  // Return array of client info objects - removing IP-related data
+  return Object.entries(sessions[sessionId].clientsInfo).map(([clientId, info]) => {
+    // Debug log the client info to diagnose missing client name
+    console.log(`Client info for ${clientId} from sessions storage:`, JSON.stringify({
+      directClientName: info.clientName,
+      fromBrowserInfo: info.browserInfo?.clientName
+    }));
+    
+    return {
+      id: clientId,
+      browserName: info.browserInfo?.name || 'Unknown',
+      osName: info.browserInfo?.os || 'Unknown',
+      // Prioritize direct clientName over browserInfo.clientName
+      clientName: info.clientName || info.browserInfo?.clientName || null,
+      browserInfo: info.browserInfo || {}, // Include full browser info for client lookup
+      connectedAt: info.connectedAt || new Date().toISOString(),
+      lastActivity: info.lastActivity || Date.now(),
+      active: isClientActive(sessionId, clientId)
+    };
+  });
 }
 
 /**
