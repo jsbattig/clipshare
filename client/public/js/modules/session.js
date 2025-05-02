@@ -253,3 +253,9 @@ export function getActiveSocket() {
   // No valid socket found
   return null;
 }
+
+// Export Session module to window for UI decryption access
+window.Session = {
+  getCurrentSession,
+  getActiveSocket
+};

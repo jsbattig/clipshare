@@ -133,6 +133,9 @@ function initializeApp() {
     // Set up all event listeners
     EventHandlers.setupEventListeners();
     
+    // Set up DOM observer for filename decryption
+    UIManager.setupFilenameObserver();
+    
     // Set up logout button to use auth module
     const logoutBtn = Utils.getElement('logout-btn');
     if (logoutBtn) {
