@@ -315,12 +315,18 @@ io.on('connection', (socket) => {
       return callback({ 
         exists: false, 
         hasActiveClients: false,
+        connectedAuthorizedClients: 0,
         message: 'Session ID is required' 
       });
     }
     
     // Check if session exists and has active clients
     const result = sessionManager.checkSessionExists(sessionId);
+    
+    if (SESSION_CONSTANTS.DEBUG_MODE) {
+      console.log(`Session check for ${sessionId}:`, result);
+    }
+    
     callback(result);
   });
   

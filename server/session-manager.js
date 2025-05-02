@@ -57,16 +57,33 @@ function checkSessionExists(sessionId) {
   
   // Check if session exists
   if (sessions[normalizedSessionId]) {
-    const activeClientCount = sessions[normalizedSessionId].clients?.length || 0;
+    // Get all clients
+    const clients = sessions[normalizedSessionId].clients || [];
+    const activeClientCount = clients.length;
+    
+    // Get authorized clients that are still connected
+    const authorizedClients = Array.from(sessions[normalizedSessionId].authorizedClients || []);
+    const connectedAuthorizedCount = authorizedClients.filter(id => 
+      clients.includes(id)).length;
+    
+    if (SESSION_CONSTANTS.DEBUG_MODE) {
+      console.log(`Session ${normalizedSessionId} check:
+        - Total clients: ${activeClientCount}
+        - Total authorized: ${authorizedClients.length}
+        - Connected authorized: ${connectedAuthorizedCount}`);
+    }
+    
     return {
       exists: true,
-      hasActiveClients: activeClientCount > 0
+      hasActiveClients: activeClientCount > 0,
+      connectedAuthorizedClients: connectedAuthorizedCount,
     };
   }
   
   return {
     exists: false,
-    hasActiveClients: false
+    hasActiveClients: false,
+    connectedAuthorizedClients: 0
   };
 }
 

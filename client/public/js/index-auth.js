@@ -18,39 +18,77 @@ const passwordToggle = document.getElementById('password-toggle');
 const authStatus = document.getElementById('auth-status');
 const authStatusText = authStatus?.querySelector('.auth-status-text');
 
-// Initialize socket connection with proxy support
-const socket = io({
-  path: '/socket.io',
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  timeout: 20000,
-  // Auto-detect if we're using HTTPS
-  secure: window.location.protocol === 'https:'
-});
+/**
+ * Get or create a socket connection on demand
+ * @returns {Object} Socket.io instance
+ */
+function getSocketConnection() {
+  // Return existing socket if already created and connected
+  if (window.appSocket && window.appSocket.connected) {
+    console.log('Using existing connected socket');
+    return window.appSocket;
+  }
+  
+  // If socket exists but is disconnected, attempt to reconnect
+  if (window.appSocket) {
+    console.log('Reconnecting existing socket');
+    window.appSocket.connect();
+    return window.appSocket;
+  }
+  
+  console.log('Creating new socket connection');
+  
+  // Create a new socket connection with improved settings
+  const socket = io({
+    path: '/socket.io',
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 20000,
+    // Auto-detect if we're using HTTPS
+    secure: window.location.protocol === 'https:',
+    // Try polling first for better cross-browser compatibility
+    transports: ['polling', 'websocket']
+  });
+  
+  // Set up event handlers
+  socket.on('connect', () => {
+    console.log('Connected to server with ID:', socket.id);
+  });
+  
+  socket.on('connect_error', (err) => {
+    console.error('Socket connection error:', err);
+    hideAuthStatus();
+    displayMessage('Connection error: ' + (err.message || 'Cannot reach server'), 'error');
+    setFormLoading(false);
+  });
+  
+  socket.on('disconnect', () => {
+    console.log('Disconnected from server');
+  });
+  
+  // Store socket for reuse
+  window.appSocket = socket;
+  return socket;
+}
 
 // Initialize the authentication module
 document.addEventListener('DOMContentLoaded', () => {
-  // Initialize auth module with our socket and callbacks
-  AuthModule.init(socket, {
-    onSuccess: handleAuthSuccess,
-    onFailure: handleAuthFailure,
-    onStatusUpdate: updateAuthStatus
-  });
+  // Set up password toggle
+  if (passwordToggle) {
+    displayMessage('Initializing authentication...', 'info');
+    passwordToggle.addEventListener('click', togglePasswordVisibility);
+  }
   
   // Check if user is already authenticated
   const sessionData = AuthModule.getSessionData();
   
-  // Set up password toggle
-  if (passwordToggle) {
-    passwordToggle.addEventListener('click', togglePasswordVisibility);
-  }
-  
-  // If session data exists, try to reconnect
+  // If session data exists, try to reconnect by creating socket and logging in
   if (sessionData && sessionData.sessionId && sessionData.passphrase) {
     displayMessage('Reconnecting to session...', 'info');
     attemptLogin(sessionData.sessionId, sessionData.passphrase);
   }
+  // Don't create socket until it's needed
 });
 
 /**
@@ -95,7 +133,51 @@ function attemptLogin(sessionId, passphrase) {
   // Get browser information for user-agent tracking
   const browserInfo = getBrowserInfo();
   
-  // Use the new auth module with client-side encryption
+  // Get or create a socket connection
+  const socket = getSocketConnection();
+  
+  // Ensure the socket is connected before proceeding
+  if (!socket.connected) {
+    displayMessage('Connecting to server...', 'info');
+    showAuthStatus('Connecting to server...');
+    
+    // Wait for connection before proceeding
+    socket.once('connect', () => {
+      console.log('Socket connected, proceeding with authentication');
+      proceedWithAuthentication(socket, sessionId, passphrase);
+    });
+    
+    // Set connection timeout
+    setTimeout(() => {
+      if (!socket.connected) {
+        hideAuthStatus();
+        displayMessage('Unable to connect to server. Please try again later.', 'error');
+        setFormLoading(false);
+      }
+    }, 5000);
+    
+    return;
+  }
+  
+  // If already connected, proceed immediately
+  proceedWithAuthentication(socket, sessionId, passphrase);
+}
+
+/**
+ * Proceed with authentication after ensuring socket connection
+ * @param {Object} socket - Socket.io instance
+ * @param {string} sessionId - Session identifier
+ * @param {string} passphrase - Secret passphrase
+ */
+function proceedWithAuthentication(socket, sessionId, passphrase) {
+  // Initialize auth module with the socket
+  AuthModule.init(socket, { 
+    onSuccess: handleAuthSuccess,
+    onFailure: handleAuthFailure,
+    onStatusUpdate: updateAuthStatus
+  });
+  
+  // Use the auth module with client-side encryption
   AuthModule.createOrJoinSession(sessionId, passphrase, updateAuthStatus)
     .then(() => {
       hideAuthStatus();
@@ -197,17 +279,4 @@ function setFormLoading(isLoading) {
   authButton.textContent = isLoading ? 'Connecting...' : 'Join Session';
 }
 
-// Socket connection state handlers
-socket.on('connect', () => {
-  console.log('Connected to server');
-});
-
-socket.on('connect_error', () => {
-  hideAuthStatus();
-  displayMessage('Connection error. Please try again.', 'error');
-  setFormLoading(false);
-});
-
-socket.on('disconnect', () => {
-  console.log('Disconnected from server');
-});
+// Socket event handlers are now set up in getSocketConnection()
