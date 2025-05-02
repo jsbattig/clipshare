@@ -428,34 +428,4 @@ export function getBaseContent(content) {
   return JSON.stringify(content);
 }
 
-/**
- * Get client's external IP address using a public API service
- * @param {number} timeoutMs - Timeout in milliseconds
- * @returns {Promise<string>} - Client IP address or error message
- */
-export async function getExternalIpAddress(timeoutMs = 3000) {
-  // Create a promise that rejects after timeout
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('IP fetch timeout')), timeoutMs);
-  });
-  
-  // Create the fetch promise
-  const fetchPromise = fetch('https://api.ipify.org?format=json')
-    .then(response => {
-      if (!response.ok) throw new Error('IP service unavailable');
-      return response.json();
-    })
-    .then(data => data.ip)
-    .catch(error => {
-      console.warn('Error fetching external IP:', error);
-      throw error;
-    });
-  
-  // Race the two promises
-  try {
-    return await Promise.race([fetchPromise, timeoutPromise]);
-  } catch (error) {
-    console.warn('Could not determine external IP:', error);
-    return '<IP unknown>';
-  }
-}
+// External IP detection function removed as no longer needed
