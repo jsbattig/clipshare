@@ -17,6 +17,14 @@ Initial implementation of the application with:
 - Docker and Docker Compose configuration
 - GitHub integration with Actions workflow
 
+**Client Name Display Fix (May 2, 2025):**
+- Fixed issue where browser name was showing instead of user-provided client name in Connected Devices panel
+- Modified UI manager to prioritize user-provided client name over browser information
+- Added retrieval of client name from local storage as fallback for current client
+- Enhanced server-side client info structure to make client name more accessible
+- Added detailed logging to trace client name through the entire app
+- Fixed data structure inconsistencies between server and client
+
 **Server Join Session Error Fix (May 2, 2025):**
 - Fixed TypeError in server code where sessionManager.joinSession function was missing
 - Replaced nonexistent joinSession function with proper session existence check

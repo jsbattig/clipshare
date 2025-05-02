@@ -79,6 +79,7 @@ The ClipShare application has been reimplemented with a simplified approach. The
 19. **Client Name Socket Fix (May 2, 2025)** - Fixed critical issue where client name wasn't correctly passed to server during socket connection establishment
 20. **Connected Devices Display Fix (May 2, 2025)** - Fixed issue where client names weren't appearing in the Connected Devices panel after redirecting from login page to app page
 21. **Server Join Session Error Fix (May 2, 2025)** - Fixed TypeError in server code where sessionManager.joinSession function was missing, causing login failures
+22. **Client Name Display Fix (May 2, 2025)** - Fixed issue where browser name was showing instead of user-provided client name in Connected Devices panel
 
 ## Next Milestone Goals
 1. ~~**Fix Authentication Storage**~~ ✅ COMPLETED - Resolved localStorage key inconsistencies
