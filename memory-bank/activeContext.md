@@ -17,6 +17,13 @@ Initial implementation of the application with:
 - Docker and Docker Compose configuration
 - GitHub integration with Actions workflow
 
+**Server Join Session Error Fix (May 2, 2025):**
+- Fixed TypeError in server code where sessionManager.joinSession function was missing
+- Replaced nonexistent joinSession function with proper session existence check
+- Enhanced session joining logic to properly handle banned sessions
+- Fixed issue that was preventing login and client list display
+- Added proper error handling to ensure smooth login experience
+
 **Connected Devices Display Fix (May 2, 2025):**
 - Fixed issue where client name wasn't appearing in Connected Devices panel after login redirect
 - Added client name persistence through page redirect from login to main app
