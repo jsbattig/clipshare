@@ -35,8 +35,8 @@ const io = new Server(server, {
 });
 
 // Constants for ping mechanism
-const PING_INTERVAL = 15000; // 15 seconds between pings
-const PING_TIMEOUT = 5000;   // 5 seconds to wait for responses before cleanup
+const PING_INTERVAL = 5000;  // 5 seconds between pings
+const PING_TIMEOUT = 2500;   // 2.5 seconds to wait for responses before cleanup
 const FORCE_RESET_INTERVAL = 60000; // 60 seconds between force resets
 
 // Function to format current time for logging
@@ -204,7 +204,27 @@ io.on('connection', (socket) => {
       if (result.success) {
         // Token is valid - record this client as responsive
         console.log(`Received valid ping response from client ${socket.id} in session ${sessionId}`);
-        sessionManager.recordPingResponse(sessionId, socket.id);
+        
+        // This will return true if the client wasn't active before
+        const wasNewlyActivated = sessionManager.recordPingResponse(sessionId, socket.id);
+        
+        // Broadcast updates immediately if client was newly activated
+        if (wasNewlyActivated) {
+          // Get updated counts and lists
+          const activeClientCount = sessionManager.getActiveSessionClients(sessionId).length;
+          const clientsList = sessionManager.getSessionClientsInfo(sessionId);
+          
+          // Broadcast updates to all clients in the session
+          io.to(sessionId).emit('client-count-update', { 
+            clientCount: activeClientCount 
+          });
+          
+          io.to(sessionId).emit('client-list-update', {
+            clients: clientsList
+          });
+          
+          console.log(`Real-time update: Client ${socket.id} is now active (${activeClientCount} active clients)`);
+        }
       } else {
         // Invalid token - potential security issue
         console.warn(`Security: Invalid session token in ping response from ${socket.id}`);

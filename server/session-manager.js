@@ -300,17 +300,21 @@ function getActiveSessionClients(sessionId) {
  * Record a ping response from a client
  * @param {string} sessionId - The session identifier
  * @param {string} clientId - The client socket ID
+ * @returns {boolean} True if this was a newly activated client
  */
 function recordPingResponse(sessionId, clientId) {
-  if (!sessions[sessionId]) return;
+  if (!sessions[sessionId]) return false;
   
   // Initialize activeClients if it doesn't exist
   if (!sessions[sessionId].activeClients) {
     sessions[sessionId].activeClients = [];
   }
   
+  // Check if client was already active
+  const wasAlreadyActive = sessions[sessionId].activeClients.includes(clientId);
+  
   // Add to active clients if not already there
-  if (!sessions[sessionId].activeClients.includes(clientId)) {
+  if (!wasAlreadyActive) {
     sessions[sessionId].activeClients.push(clientId);
   }
   
@@ -321,6 +325,9 @@ function recordPingResponse(sessionId, clientId) {
   
   // Update last ping timestamp
   sessions[sessionId].lastPingResponse[clientId] = Date.now();
+  
+  // Return true if this client was newly activated
+  return !wasAlreadyActive;
 }
 
 /**
