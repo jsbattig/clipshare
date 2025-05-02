@@ -76,6 +76,7 @@ The ClipShare application has been reimplemented with a simplified approach. The
 16. **Client Identification Simplification (May 2, 2025)** - Removed external IP detection and display, focusing solely on client-provided names for simpler, more reliable identification
 17. **Client Identification Display Fix (May 2, 2025)** - Fixed client name flow throughout the application to ensure proper display in Connected Devices panel and UI notifications
 18. **Client Name Data Flow Fix (May 2, 2025)** - Fixed data flow issues between login form, server socket handling, and UI display to properly propagate and display client names
+19. **Client Name Socket Fix (May 2, 2025)** - Fixed critical issue where client name wasn't correctly passed to server during socket connection establishment
 
 ## Next Milestone Goals
 1. ~~**Fix Authentication Storage**~~ ✅ COMPLETED - Resolved localStorage key inconsistencies

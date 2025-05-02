@@ -17,6 +17,13 @@ Initial implementation of the application with:
 - Docker and Docker Compose configuration
 - GitHub integration with Actions workflow
 
+**Client Name Flow Fix (May 2, 2025):**
+- Fixed critical socket connection issue where client name wasn't properly passed to server
+- Enhanced socket connection creation to force new connection with updated client name
+- Modified login flow to ensure client name is passed correctly at initial socket creation
+- Added extensive debug logging to trace client name throughout the connection process
+- Fixed timing issues in socket parameter passing
+
 **Client Identification Display Fix (May 2, 2025):**
 - Fixed client name display in Connected Devices panel
 - Added proper client name flow from login form to server to UI display
