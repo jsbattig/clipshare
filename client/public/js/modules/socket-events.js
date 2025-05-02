@@ -423,21 +423,31 @@ function logConnectedClients() {
  * @param {Object} data - Event data containing clients array
  */
 function handleClientListUpdate(data) {
-  console.log('Received client list update:', data);
+  console.log('CLIENT LIST UPDATE RECEIVED:', data);
   
   if (data.clients && Array.isArray(data.clients)) {
     // Update our local list of clients
     connectedClients = data.clients;
+    
+    // Check for active clients
+    const activeClients = data.clients.filter(c => c.active).length;
+    console.log(`Active clients in update: ${activeClients}/${data.clients.length}`);
+    console.log('Client data:', JSON.stringify(data.clients));
     
     // Log client count information
     const counts = logConnectedClients();
     
     // Update UI via callback
     if (clientListCallback) {
+      console.log('Updating UI with client list via callback');
       clientListCallback(connectedClients);
+    } else {
+      console.warn('No client list callback registered - UI will not update');
     }
     
     // Also update the status display for better user feedback
     UIManager.updateSyncStatus(`Connected to session with ${counts.active} active clients`);
+  } else {
+    console.warn('Invalid client list update received:', data);
   }
 }

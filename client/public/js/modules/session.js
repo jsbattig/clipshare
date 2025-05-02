@@ -93,11 +93,31 @@ export function connectToSession(onSuccess, onFailure, displayMessage) {
  * Log the user out
  */
 export function logout() {
+  console.log('Logout initiated - cleaning up connections');
+  
   // Clear session data
   localStorage.removeItem(CONFIG.storage.sessionKey);
   
-  // Disconnect socket if available
+  // Disconnect and clean up any global socket
+  if (window.appSocket) {
+    console.log('Cleaning up global socket connection');
+    
+    // Remove all listeners to prevent reconnection attempts
+    window.appSocket.removeAllListeners();
+    
+    // Set flag to prevent auto-reconnect
+    window.appSocket.manuallyDisconnected = true;
+    
+    // Disconnect socket
+    window.appSocket.disconnect();
+    
+    // Delete reference
+    delete window.appSocket;
+  }
+  
+  // Also handle local socket reference
   if (socket && socket.connected) {
+    console.log('Disconnecting local socket reference');
     socket.disconnect();
   }
   

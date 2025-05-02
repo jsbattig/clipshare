@@ -23,6 +23,12 @@ const authStatusText = authStatus?.querySelector('.auth-status-text');
  * @returns {Object} Socket.io instance
  */
 function getSocketConnection() {
+  // If socket was manually disconnected, don't auto-reconnect
+  if (window.appSocket && window.appSocket.manuallyDisconnected) {
+    console.log('Socket was manually disconnected, creating new instance');
+    window.appSocket = null;
+  }
+
   // Return existing socket if already created and connected
   if (window.appSocket && window.appSocket.connected) {
     console.log('Using existing connected socket');
@@ -98,17 +104,22 @@ function getSocketConnection() {
 document.addEventListener('DOMContentLoaded', () => {
   // Set up password toggle
   if (passwordToggle) {
-    displayMessage('Initializing authentication...', 'info');
+    displayMessage('Enter session details to connect', 'info');
     passwordToggle.addEventListener('click', togglePasswordVisibility);
   }
   
-  // Check if user is already authenticated
+  // Check if user has saved session data
   const sessionData = AuthModule.getSessionData();
   
-  // If session data exists, try to reconnect by creating socket and logging in
-  if (sessionData && sessionData.sessionId && sessionData.passphrase) {
-    displayMessage('Reconnecting to session...', 'info');
-    attemptLogin(sessionData.sessionId, sessionData.passphrase);
+  // Instead of automatically reconnecting, just pre-fill the form
+  if (sessionData && sessionData.sessionId) {
+    // Pre-fill the form with saved session data
+    sessionIdInput.value = sessionData.sessionId;
+    if (sessionData.passphrase) {
+      passphraseInput.value = sessionData.passphrase;
+    }
+    
+    displayMessage(`Session "${sessionData.sessionId}" data found. Click Join to reconnect.`, 'info');
   }
   // Don't create socket until it's needed
 });

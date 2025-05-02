@@ -580,6 +580,25 @@ function addClientWithInfo(sessionId, clientId, clientInfo, authorized = false) 
     sessions[sessionId].clients.push(clientId);
   }
   
+  // CRITICAL FIX: Always mark new clients as active immediately
+  if (!sessions[sessionId].activeClients) {
+    sessions[sessionId].activeClients = [];
+  }
+  
+  // Add to active clients list if not already there
+  if (!sessions[sessionId].activeClients.includes(clientId)) {
+    console.log(`Explicitly marking client ${clientId} as active in session ${sessionId}`);
+    sessions[sessionId].activeClients.push(clientId);
+  }
+  
+  // Initialize lastPingResponse for this client
+  if (!sessions[sessionId].lastPingResponse) {
+    sessions[sessionId].lastPingResponse = {};
+  }
+  
+  // Set initial ping response to current time to prevent early cleanup
+  sessions[sessionId].lastPingResponse[clientId] = Date.now();
+  
   // Initialize clientsInfo if it doesn't exist
   if (!sessions[sessionId].clientsInfo) {
     sessions[sessionId].clientsInfo = {};
@@ -598,6 +617,14 @@ function addClientWithInfo(sessionId, clientId, clientInfo, authorized = false) 
       sessions[sessionId].authorizedClients = new Set();
     }
     sessions[sessionId].authorizedClients.add(clientId);
+  }
+  
+  // Log the state of active clients in this session
+  if (SESSION_CONSTANTS.DEBUG_MODE) {
+    console.log(`After adding client ${clientId}:`);
+    console.log(`- Session ${sessionId} has ${sessions[sessionId].clients.length} total clients`);
+    console.log(`- Session ${sessionId} has ${sessions[sessionId].activeClients.length} active clients`);
+    console.log(`- Active clients: ${sessions[sessionId].activeClients.join(', ')}`);
   }
 }
 

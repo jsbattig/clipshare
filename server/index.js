@@ -208,7 +208,7 @@ io.on('connection', (socket) => {
         connectedAt: new Date().toISOString()
       };
       
-      // Add to session with authorized flag
+      // Add to session with authorized flag - this also marks the client as active
       sessionManager.addClientWithInfo(sessionId, clientId, clientInfo, true);
       
       // Get current clipboard content and client info
@@ -216,12 +216,24 @@ io.on('connection', (socket) => {
       const clientCount = sessionManager.getClientCount(sessionId);
       const clientsList = sessionManager.getSessionClientsInfo(sessionId);
       
-      // Send success to client
+      // Enhanced debugging for client list
+      if (SESSION_CONSTANTS.DEBUG_MODE) {
+        console.log('Client list being sent to newly verified client:');
+        console.log(JSON.stringify(clientsList, null, 2));
+        console.log(`Active clients: ${clientsList.filter(c => c.active).length}/${clientsList.length}`);
+      }
+      
+      // Send success to client with client list
       socket.emit('verification-result', {
         approved: true,
         sessionId,
         clipboard: currentContent,
         clientCount,
+        clients: clientsList
+      });
+      
+      // Immediately send client list update to all clients
+      io.to(sessionId).emit('client-list-update', {
         clients: clientsList
       });
       
