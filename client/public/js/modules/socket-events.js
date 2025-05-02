@@ -206,7 +206,7 @@ function handleClipboardBroadcast(data) {
     return;
   }
   
-  console.log('Received encrypted clipboard update from another device:', data.type);
+  console.log('Received clipboard update from another device:', data.type);
   
   // Get session data for decryption
   const sessionData = Session.getCurrentSession();
@@ -217,14 +217,27 @@ function handleClipboardBroadcast(data) {
   }
   
   try {
-    // Decrypt the content
+    // Always assume the content is encrypted and try to decrypt it
+    console.log('Attempting to decrypt received content');
     const decryptedData = decryptClipboardContent(data, sessionData.passphrase);
+    console.log('Decryption successful, type:', decryptedData.type);
     
     // Handle different content types
     if (decryptedData.type === 'file') {
       // File content is handled separately
       handleFileBroadcast(decryptedData);
     } else {
+      // Log what we received
+      if (decryptedData.type === 'text') {
+        // Don't log the whole content, just a snippet
+        const previewText = decryptedData.content.length > 30 
+          ? decryptedData.content.substring(0, 30) + '...' 
+          : decryptedData.content;
+        console.log('Received text content:', previewText);
+      } else if (decryptedData.type === 'image') {
+        console.log('Received image content, data URL length:', decryptedData.content.length);
+      }
+      
       // Update app content without sending to server
       if (clipboardUpdateCallback) {
         clipboardUpdateCallback(decryptedData, false);
@@ -245,7 +258,7 @@ function handleClipboardBroadcast(data) {
 
 /**
  * Handle file broadcast event
- * @param {Object} fileData - File data (already decrypted)
+ * @param {Object} fileData - File data
  */
 function handleFileBroadcast(fileData) {
   // Skip if this update originated from this client
@@ -253,15 +266,23 @@ function handleFileBroadcast(fileData) {
     return;
   }
   
-  console.log('Received shared file from other client:', fileData.fileName);
+  // Always log what we received without exposing sensitive content
+  console.log('Received shared file from other client');
   
   // Store the shared file and update UI
   if (fileUpdateCallback) {
     fileUpdateCallback(fileData);
   }
   
-  // Show notification
-  UIManager.displayMessage(`File received: ${fileData.fileName}`, 'info', 5000);
+  try {
+    // Show notification with the filename
+    const fileName = fileData.fileName || 'file';
+    UIManager.displayMessage(`File received: ${fileName}`, 'info', 5000);
+  } catch (error) {
+    // Generic message if filename can't be displayed (e.g., if still encrypted)
+    console.error('Error displaying file notification:', error);
+    UIManager.displayMessage('File received', 'info', 5000);
+  }
 }
 
 /**

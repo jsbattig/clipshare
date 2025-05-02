@@ -10,6 +10,15 @@ The current focus is on implementing the core clipboard synchronization function
 
 ## Recent Changes
 
+**Fixed Encryption Issues (May 2, 2025):**
+- Fixed issues with content encryption where encrypted content was displaying instead of decrypted content
+- Removed dependency on `_encrypted` flag - now all content is always encrypted in transit
+- Modified encryption module to always attempt decryption on incoming content
+- Enhanced socket-events.js with improved logging and error handling for decryption
+- Updated file-operations.js to strictly enforce encryption for all file transmissions
+- Added better error messages when encryption fails
+- Ensured all content types (text, images, files) properly use encryption/decryption
+
 **Content Encryption Implementation (May 2, 2025):**
 - Implemented end-to-end encryption for all clipboard content (text, images, files)
 - Created new encryption.js module utilizing the already-included CryptoJS library

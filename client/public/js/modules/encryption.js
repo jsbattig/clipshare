@@ -64,6 +64,8 @@ export function encryptClipboardContent(content, passphrase) {
   }
   
   try {
+    console.log(`Encrypting ${content.type} content`);
+    
     if (content.type === 'text') {
       // For text, encrypt the content directly
       encryptedContent.content = encryptData(content.content, passphrase);
@@ -81,8 +83,7 @@ export function encryptClipboardContent(content, passphrase) {
       }
     }
     
-    // Add a flag indicating the content is encrypted
-    encryptedContent._encrypted = true;
+    // No need for an encrypted flag - all transmitted content is assumed encrypted
     
     return encryptedContent;
   } catch (error) {
@@ -99,8 +100,9 @@ export function encryptClipboardContent(content, passphrase) {
  * @returns {Object} Decrypted content object
  */
 export function decryptClipboardContent(content, passphrase) {
-  // Skip if not encrypted or no passphrase provided
-  if (!content || !content._encrypted || !passphrase) {
+  // Skip if no content or no passphrase provided
+  if (!content || !passphrase) {
+    console.warn('Cannot decrypt: missing content or passphrase');
     return content;
   }
   
@@ -108,10 +110,14 @@ export function decryptClipboardContent(content, passphrase) {
   const decryptedContent = {...content};
   
   try {
+    console.log(`Attempting to decrypt ${content.type} content`);
+    
     if (content.type === 'text') {
       decryptedContent.content = decryptData(content.content, passphrase);
+      console.log('Text decryption successful');
     } else if (content.type === 'image') {
       decryptedContent.content = decryptData(content.content, passphrase);
+      console.log('Image decryption successful');
     } else if (content.type === 'file') {
       decryptedContent.content = decryptData(content.content, passphrase);
       decryptedContent.fileName = decryptData(content.fileName, passphrase);
@@ -119,10 +125,8 @@ export function decryptClipboardContent(content, passphrase) {
       if (content.mimeType) {
         decryptedContent.mimeType = decryptData(content.mimeType, passphrase);
       }
+      console.log('File decryption successful');
     }
-    
-    // Remove the encryption flag
-    delete decryptedContent._encrypted;
     
     return decryptedContent;
   } catch (error) {

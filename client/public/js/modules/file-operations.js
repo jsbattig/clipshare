@@ -80,22 +80,24 @@ export function handleSingleFileUpload(file, onFileProcessed) {
     
     // Call the callback with processed file data
     if (onFileProcessed) {
-      // Get session data for encryption
+      // Always encrypt the file data before sending
       const sessionData = Session.getCurrentSession();
       if (sessionData && sessionData.passphrase) {
         try {
-          // Encrypt the file data before sending
+          console.log(`Encrypting file '${file.name}' before sending`);
           const encryptedFileData = encryptClipboardContent(fileData, sessionData.passphrase);
           onFileProcessed(encryptedFileData);
           UIManager.displayMessage(`File "${file.name}" encrypted and processed`, 'success', 3000);
         } catch (error) {
           console.error('Failed to encrypt file:', error);
-          UIManager.displayMessage('Failed to encrypt file. Sending unencrypted.', 'error', 3000);
-          onFileProcessed(fileData);
+          UIManager.displayMessage('Failed to encrypt file.', 'error', 5000);
+          // Don't send the file unencrypted - encryption is required
+          return;
         }
       } else {
-        console.warn('No session passphrase available for encryption');
-        onFileProcessed(fileData);
+        console.error('No session passphrase available for encryption');
+        UIManager.displayMessage('Cannot send file: Missing encryption key', 'error', 5000);
+        return;
       }
     }
     
@@ -235,22 +237,24 @@ export async function createAndShareZip(files, onZipCreated) {
     
     // Call the callback with the ZIP data
     if (onZipCreated) {
-      // Get session data for encryption
+      // Always encrypt the ZIP data before sending
       const sessionData = Session.getCurrentSession();
       if (sessionData && sessionData.passphrase) {
         try {
-          // Encrypt the ZIP data before sending
+          console.log('Encrypting ZIP archive before sending');
           const encryptedZipData = encryptClipboardContent(fileData, sessionData.passphrase);
           onZipCreated(encryptedZipData);
           UIManager.displayMessage(`ZIP archive encrypted and ready to share`, 'success', 3000);
         } catch (error) {
           console.error('Failed to encrypt ZIP archive:', error);
-          UIManager.displayMessage('Failed to encrypt ZIP. Sending unencrypted.', 'error', 3000);
-          onZipCreated(fileData);
+          UIManager.displayMessage('Failed to encrypt ZIP archive.', 'error', 5000);
+          // Don't send the file unencrypted - encryption is required
+          return;
         }
       } else {
-        console.warn('No session passphrase available for encryption');
-        onZipCreated(fileData);
+        console.error('No session passphrase available for encryption');
+        UIManager.displayMessage('Cannot send ZIP: Missing encryption key', 'error', 5000);
+        return;
       }
     }
     
