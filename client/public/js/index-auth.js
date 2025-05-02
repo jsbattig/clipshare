@@ -23,7 +23,7 @@ const authStatusText = authStatus?.querySelector('.auth-status-text');
  * Get or create a socket connection on demand
  * @returns {Object} Socket.io instance
  */
-function getSocketConnection() {
+function getSocketConnection(forcedClientName = null) {
   // If socket was manually disconnected, don't auto-reconnect
   if (window.appSocket && window.appSocket.manuallyDisconnected) {
     console.log('Socket was manually disconnected, creating new instance');
@@ -31,16 +31,24 @@ function getSocketConnection() {
   }
 
   // Return existing socket if already created and connected
-  if (window.appSocket && window.appSocket.connected) {
+  // UNLESS we have a new forcedClientName
+  if (window.appSocket && window.appSocket.connected && !forcedClientName) {
     console.log('Using existing connected socket');
     return window.appSocket;
   }
   
-  // If socket exists but is disconnected, attempt to reconnect
-  if (window.appSocket) {
+  // If socket exists but is disconnected and no new client name, attempt to reconnect
+  if (window.appSocket && !forcedClientName) {
     console.log('Reconnecting existing socket');
     window.appSocket.connect();
     return window.appSocket;
+  }
+  
+  // If we have a socket and we're forcing a new client name, disconnect it first
+  if (window.appSocket && forcedClientName) {
+    console.log('Disconnecting existing socket to create new one with updated client name');
+    window.appSocket.disconnect();
+    window.appSocket = null;
   }
   
   console.log('Creating new socket connection');
@@ -49,9 +57,17 @@ function getSocketConnection() {
   const persistentClientId = AuthModule.getClientId();
   console.log('Initializing auth socket with persistent client ID:', persistentClientId);
   
-  // Get client name if available
+  // Get client name - prioritize forced name passed to function
   const sessionData = AuthModule.getSessionData();
-  const clientName = sessionData?.clientName || clientNameInput?.value || null;
+  const clientName = forcedClientName || sessionData?.clientName || clientNameInput?.value || null;
+  
+  // CRITICAL DEBUG: Log client name value to verify what's being sent
+  console.log('Client name value when creating socket:', {
+    forcedName: forcedClientName,
+    sessionDataName: sessionData?.clientName,
+    inputFieldName: clientNameInput?.value,
+    finalName: clientName
+  });
   
   // Create a new socket connection with improved settings
   const socket = io({
@@ -220,8 +236,12 @@ function attemptLogin(sessionId, passphrase, clientName) {
   // Add client name to browser info
   browserInfo.clientName = clientName;
   
-  // Get or create a socket connection
-  const socket = getSocketConnection();
+  console.log(`Attempting login with client name: ${clientName}`);
+  
+  // Get or create a socket connection WITH the client name
+  // This is crucial - we need to pass the client name to force creation
+  // of a new socket with the correct client name
+  const socket = getSocketConnection(clientName);
   
   // Ensure the socket is connected before proceeding
   if (!socket.connected) {

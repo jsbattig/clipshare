@@ -190,6 +190,14 @@ io.on('connection', (socket) => {
   const connectionMode = queryParams.mode || 'unknown';
   const clientName = queryParams.clientName || null;
   
+  console.log(`Socket query parameters:`, {
+    clientIdentity: queryParams.clientIdentity,
+    clientName: queryParams.clientName,
+    mode: queryParams.mode,
+    timestamp: queryParams.timestamp,
+    rawQuery: JSON.stringify(queryParams)
+  });
+  
   // Store persistent identity on the socket object for later use
   socket.clientIdentifier = socket.id; // Fallback to socket ID
   socket.persistentIdentity = persistentClientId;
@@ -198,11 +206,20 @@ io.on('connection', (socket) => {
   socket.clientName = clientName; // Store client name on socket object
   
   console.log(`New client connected: ${socket.id} (${connectionMode} mode)`);
+  console.log(`Socket properties set:`, {
+    clientIdentifier: socket.clientIdentifier,
+    persistentIdentity: socket.persistentIdentity,
+    connectionMode: socket.connectionMode,
+    clientName: socket.clientName
+  });
+  
   if (persistentClientId) {
     console.log(`- With persistent identity: ${persistentClientId}`);
   }
   if (clientName) {
     console.log(`- With client name: ${clientName}`);
+  } else {
+    console.log(`- WARNING: No client name provided in connection parameters`);
   }
   
   // Handle client identity information (used for tracking across page changes)
