@@ -331,48 +331,110 @@ function handleServerPing(data) {
     // Log with detailed info
     console.log(`Received server ping at ${getFormattedTime()}`, data);
     
-    // Only respond if we're connected to a session
+    // Try to get session data using enhanced reliable method
     const sessionData = Session.getCurrentSession();
-    if (!sessionData || !socket || !socket.connected) {
-      console.warn('Cannot respond to ping - no session data or socket connection');
+    
+    // Get the most reliable socket reference
+    const activeSocket = getActiveSocketReference();
+    
+    // Check if we have what we need to respond
+    if (!sessionData) {
+      console.warn('Cannot respond to ping - no valid session data available');
+      console.log('Attempting to retrieve session ID from socket...');
+      
+      // Try to get sessionId directly from socket if available
+      const socketSessionId = activeSocket?.sessionId;
+      if (socketSessionId && activeSocket && activeSocket.connected) {
+        console.log(`Found session ID ${socketSessionId} in socket object`);
+        respondToPing(socketSessionId, null, activeSocket);
+        return;
+      }
       return;
     }
     
-    // Get browser info for enhanced client identification
-    const browserInfo = getBrowserInfo();
-    
-    // Log sending response
-    console.log(`Sending ping response for session ${sessionData.sessionId}, client ID: ${socket.id}`);
-    
-    // Respond with session authentication and client info
-    socket.emit('client-ping-response', {
-      sessionId: sessionData.sessionId,
-      sessionToken: sessionData.passphrase,
-      timestamp: Date.now(),
-      browserInfo: browserInfo,
-      clientId: socket.id,
-      responseTime: getFormattedTime()
-    });
-    
-    // Update UI to show we're active
-    UIManager.updateSyncStatus('Connection active - last ping: ' + getFormattedTime());
-    
-    // Update local client list if we have one
-    if (connectedClients && connectedClients.length > 0) {
-      // Find our client ID in the list
-      const ourClient = connectedClients.find(client => client.id === socket.id);
-      if (ourClient) {
-        // Make sure it's marked as active
-        ourClient.active = true;
-        
-        // If we have a callback, update UI
-        if (clientListCallback) {
-          clientListCallback(connectedClients);
-        }
-      }
+    if (!activeSocket || !activeSocket.connected) {
+      console.warn('Cannot respond to ping - no connected socket available');
+      return;
     }
+    
+    // We have both session data and a connected socket - proceed with response
+    respondToPing(sessionData.sessionId, sessionData.passphrase, activeSocket);
+    
   } catch (err) {
     console.error('Error handling server ping:', err);
+  }
+}
+
+/**
+ * Get the most reliable socket reference
+ * @returns {Object|null} Active socket instance
+ */
+function getActiveSocketReference() {
+  // First try the Session module's method if available
+  if (typeof Session.getActiveSocket === 'function') {
+    const sessionSocket = Session.getActiveSocket();
+    if (sessionSocket) {
+      return sessionSocket;
+    }
+  }
+  
+  // Then try window.appSocket
+  if (window.appSocket && window.appSocket.connected) {
+    return window.appSocket;
+  }
+  
+  // Finally fall back to module-level socket
+  return socket;
+}
+
+/**
+ * Helper function to respond to server pings
+ * @param {string} sessionId - Session ID
+ * @param {string|null} passphrase - Session passphrase (optional)
+ * @param {Object} socketToUse - Socket to use for the response
+ */
+function respondToPing(sessionId, passphrase, socketToUse) {
+  // Get browser info for enhanced client identification
+  const browserInfo = getBrowserInfo();
+  
+  // Log sending response
+  console.log(`Sending ping response for session ${sessionId}, client ID: ${socketToUse.id}`);
+  
+  // Respond with session authentication and client info
+  socketToUse.emit('client-ping-response', {
+    sessionId: sessionId,
+    sessionToken: passphrase, // This may be null in some cases
+    timestamp: Date.now(),
+    browserInfo: browserInfo,
+    clientId: socketToUse.id,
+    responseTime: getFormattedTime()
+  });
+  
+  // Update UI to show we're active
+  UIManager.updateSyncStatus('Connection active - last ping: ' + getFormattedTime());
+  
+  // Update local client list to ensure this client shows as active
+  updateClientActiveStatus(socketToUse.id);
+}
+
+/**
+ * Update the active status of a client in the local list
+ * @param {string} clientId - Client ID to mark as active
+ */
+function updateClientActiveStatus(clientId) {
+  // Update local client list if we have one
+  if (connectedClients && connectedClients.length > 0) {
+    // Find our client ID in the list
+    const ourClient = connectedClients.find(client => client.id === clientId);
+    if (ourClient) {
+      // Make sure it's marked as active
+      ourClient.active = true;
+      
+      // If we have a callback, update UI
+      if (clientListCallback) {
+        clientListCallback(connectedClients);
+      }
+    }
   }
 }
 

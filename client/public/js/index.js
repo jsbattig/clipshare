@@ -46,6 +46,9 @@ function initializeSocket() {
   });
   
   // Expose the socket instance globally for UI functions to access
+  // Use window.appSocket for consistent naming across all modules
+  window.appSocket = socket;
+  // Also set socketInstance for backward compatibility
   window.socketInstance = socket;
   
   // Debug socket connection state

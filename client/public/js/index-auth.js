@@ -87,21 +87,40 @@ function getSocketConnection() {
   socket.on('ping-clients', (data) => {
     console.log('Received server ping during authentication');
     
-    // Get current session ID if available
-    const sessionId = socket.sessionId;
-    
-    // If we have a sessionId (might be stored during join request)
-    if (sessionId) {
-      console.log(`Responding to ping for session ${sessionId}`);
+    try {
+      // First try to get sessionId directly from socket
+      let sessionId = socket.sessionId;
       
-      // Send ping response
-      socket.emit('client-ping-response', {
-        sessionId: sessionId,
-        timestamp: Date.now(),
-        clientId: socket.id
-      });
-    } else {
-      console.log('No session ID available yet, cannot respond to ping');
+      // If not on socket, try to get from stored session data
+      if (!sessionId) {
+        const sessionData = AuthModule.getSessionData();
+        if (sessionData && sessionData.sessionId) {
+          sessionId = sessionData.sessionId;
+          console.log(`Retrieved session ID ${sessionId} from stored session data`);
+        }
+      }
+      
+      // If we have a sessionId (from any source), respond
+      if (sessionId) {
+        console.log(`Responding to ping for session ${sessionId}`);
+        
+        // Get browser info for enhanced identification
+        const browserInfo = getBrowserInfo();
+        
+        // Send enhanced ping response with all available info
+        socket.emit('client-ping-response', {
+          sessionId: sessionId,
+          timestamp: Date.now(),
+          clientId: socket.id,
+          browserInfo: browserInfo,
+          // Include any session passphrase if available 
+          sessionToken: socket.sessionToken || (AuthModule.getSessionData()?.passphrase)
+        });
+      } else {
+        console.log('No session ID available yet from any source, cannot respond to ping');
+      }
+    } catch (err) {
+      console.error('Error handling ping in auth page:', err);
     }
   });
   

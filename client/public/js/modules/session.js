@@ -194,5 +194,46 @@ export function isConnected() {
  * @returns {Object|null} Current session data
  */
 export function getCurrentSession() {
-  return sessionData;
+  // First try the module-level sessionData
+  if (sessionData && sessionData.sessionId && sessionData.passphrase) {
+    return sessionData;
+  }
+  
+  // If not available or incomplete, try to get from localStorage directly
+  try {
+    const sessionDataStr = localStorage.getItem(CONFIG.storage.sessionKey);
+    if (sessionDataStr) {
+      const parsedData = JSON.parse(sessionDataStr);
+      if (parsedData && parsedData.sessionId && parsedData.passphrase) {
+        // Update our module-level variable for future use
+        sessionData = parsedData;
+        console.log(`Retrieved session data from localStorage: ${parsedData.sessionId}`);
+        return parsedData;
+      }
+    }
+  } catch (e) {
+    console.error('Error parsing session data from localStorage:', e);
+  }
+  
+  console.warn('No valid session data found in memory or localStorage');
+  return null;
+}
+
+/**
+ * Get the current active socket, prioritizing global reference
+ * @returns {Object|null} Active socket instance
+ */
+export function getActiveSocket() {
+  // First try global socket reference
+  if (window.appSocket && window.appSocket.connected) {
+    return window.appSocket;
+  }
+  
+  // Fall back to module-level socket if available
+  if (socket && socket.connected) {
+    return socket;
+  }
+  
+  // No valid socket found
+  return null;
 }
