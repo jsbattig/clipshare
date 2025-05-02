@@ -202,7 +202,7 @@ io.on('connection', (socket) => {
   
   // Handle client identity information (used for tracking across page changes)
   socket.on('client-identity', (data) => {
-    const { persistentId, reconnecting } = data;
+    const { persistentId, reconnecting, socketId, browser } = data;
     
     console.log(`Received identity information from client ${socket.id}:`);
     console.log(`- Persistent ID: ${persistentId}`);
@@ -217,33 +217,84 @@ io.on('connection', (socket) => {
       // Get all active sessions
       const activeSessions = sessionManager.getActiveSessions() || [];
       
-      console.log(`Checking ${activeSessions.length} active sessions for reconnecting client`);
+      console.log(`Checking ${activeSessions.length} active sessions for reconnecting client ${persistentId}`);
       
       // Look through each session for this client's previous socket ID
       let foundPreviousSession = false;
+      let oldSocketId = null;
+      let sessionToRejoin = null;
+      let wasAuthorized = false;
       
+      // Debug - log session details to help diagnose the issue
       activeSessions.forEach(sessionId => {
-        const clientsList = sessionManager.getSessionClientsInfo(sessionId);
+        const sessionInfo = sessionManager.getSessionInfo(sessionId);
+        console.log(`DEBUG - Session ${sessionId} info:`, JSON.stringify(sessionInfo, null, 2));
         
-        // If this persistent client ID was already in a session, rejoin it
-        if (clientsList.some(c => c.browserInfo?.persistentId === persistentId)) {
-          console.log(`Found previous session ${sessionId} for reconnecting client ${persistentId}`);
+        const clientsList = sessionManager.getSessionClientsInfo(sessionId);
+        console.log(`DEBUG - Session ${sessionId} has ${clientsList.length} clients`);
+        
+        // Log each client's info to debug persistent ID storage
+        clientsList.forEach(client => {
+          console.log(`Client ${client.id} info:`);
+          console.log(`- Browser: ${client.browserName}`);
+          console.log(`- Connected at: ${client.connectedAt}`);
+          console.log(`- browserInfo:`, JSON.stringify(client.browserInfo || {}));
           
-          // Store session ID on socket
-          socket.sessionId = sessionId;
-          
-          // Join the room
-          socket.join(sessionId);
-          
-          // Update the client's socket ID in the session
-          // sessionManager.updateClientSocketId(sessionId, oldSocketId, socket.id);
-          
-          foundPreviousSession = true;
-        }
+          // Check both direct browser info and nested properties
+          if (client.browserInfo && client.browserInfo.persistentId === persistentId) {
+            console.log(`MATCH FOUND! Client ${client.id} has matching persistent ID`);
+            oldSocketId = client.id;
+            sessionToRejoin = sessionId;
+            wasAuthorized = sessionManager.isClientAuthorized(sessionId, client.id);
+            foundPreviousSession = true;
+          }
+        });
       });
       
-      if (foundPreviousSession) {
-        console.log(`Reconnected client ${socket.id} (${persistentId}) to previous session`);
+      if (foundPreviousSession && sessionToRejoin) {
+        console.log(`Found previous session ${sessionToRejoin} for reconnecting client ${persistentId}`);
+        console.log(`Old socket ID was: ${oldSocketId}, was authorized: ${wasAuthorized}`);
+        
+        // Store session ID on socket
+        socket.sessionId = sessionToRejoin;
+        
+        // Join the room
+        socket.join(sessionToRejoin);
+        
+        if (wasAuthorized) {
+          // Add client info with authorization preserved
+          const clientInfo = {
+            id: socket.id,
+            ip: socket.handshake.address,
+            browserInfo: {
+              ...(socket.browserInfo || {}),
+              persistentId: persistentId
+            },
+            connectedAt: new Date().toISOString()
+          };
+          
+          // Add to session with authorized flag preserved
+          sessionManager.addClientWithInfo(sessionToRejoin, socket.id, clientInfo, true);
+          
+          // Get current clipboard content
+          const currentContent = sessionManager.getClipboardContent(sessionToRejoin);
+          const clientCount = sessionManager.getClientCount(sessionToRejoin);
+          const clientsList = sessionManager.getSessionClientsInfo(sessionToRejoin);
+          
+          // Send verification result to client to complete the rejoin
+          socket.emit('verification-result', {
+            approved: true,
+            sessionId: sessionToRejoin,
+            clipboard: currentContent,
+            clientCount,
+            clients: clientsList
+          });
+          
+          console.log(`Reconnected and re-authorized client ${socket.id} (${persistentId}) to previous session ${sessionToRejoin}`);
+        } else {
+          // Just update connection info without authorization
+          console.log(`Client reconnected but wasn't previously authorized - not reauthorizing`);
+        }
       } else {
         console.log(`No previous session found for reconnecting client ${persistentId}`);
       }
@@ -481,13 +532,18 @@ io.on('connection', (socket) => {
       
       // If auto-authorized (first client), no need for verification
       if (result.autoAuthorized) {
-        // Add client info with authorized flag
-        const clientInfo = {
-          id: socket.id,
-          ip: socket.handshake.address,
-          browserInfo: data.browserInfo || { name: 'Unknown', os: 'Unknown' },
-          connectedAt: new Date().toISOString()
-        };
+      // Add client info with authorized flag and persistent identity
+      const clientInfo = {
+        id: socket.id,
+        ip: socket.handshake.address,
+        browserInfo: {
+          ...(socket.browserInfo || {}),
+          name: socket.browserInfo?.name || 'Unknown',
+          os: socket.browserInfo?.os || 'Unknown',
+          persistentId: socket.persistentIdentity || socket.persistentClientId
+        },
+        connectedAt: new Date().toISOString()
+      };
         
         sessionManager.addClientWithInfo(sessionId, socket.id, clientInfo, true);
         

@@ -675,6 +675,30 @@ function getClientCount(sessionId) {
 }
 
 /**
+ * Get raw session information for debugging
+ * @param {string} sessionId - The session identifier
+ * @returns {Object} Raw session data for inspection
+ */
+function getSessionInfo(sessionId) {
+  if (!sessions[sessionId]) {
+    return null;
+  }
+  
+  // Create a safe copy without circular references
+  const sessionCopy = {
+    clipboard: sessions[sessionId].clipboard,
+    createdAt: sessions[sessionId].createdAt,
+    clientCount: sessions[sessionId].clients?.length || 0,
+    activeClientCount: sessions[sessionId].activeClients?.length || 0,
+    authorizedClientCount: sessions[sessionId].authorizedClients?.size || 0,
+    lastHeartbeat: sessions[sessionId].lastHeartbeat,
+    hasPingData: !!sessions[sessionId].lastPingResponse
+  };
+  
+  return sessionCopy;
+}
+
+/**
  * Get detailed information about all clients in a session
  * @param {string} sessionId - The session identifier
  * @returns {Array} Array of client info objects
@@ -690,6 +714,7 @@ function getSessionClientsInfo(sessionId) {
     ip: info.ip || 'Unknown',
     browserName: info.browserInfo?.name || 'Unknown',
     osName: info.browserInfo?.os || 'Unknown',
+    browserInfo: info.browserInfo || {}, // Include full browser info for client lookup
     connectedAt: info.connectedAt || new Date().toISOString(),
     lastActivity: info.lastActivity || Date.now(),
     active: isClientActive(sessionId, clientId)
