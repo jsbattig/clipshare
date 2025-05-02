@@ -157,9 +157,13 @@ function handleClientJoined(data) {
   if (data.clientInfo) {
     const browser = data.clientInfo.browserInfo?.name || 'Unknown browser';
     const os = data.clientInfo.browserInfo?.os || 'Unknown OS';
-    const ip = data.clientInfo.ip || 'Unknown IP';
+    const clientName = data.clientInfo.browserInfo?.clientName || data.clientInfo.clientName || null;
     
-    UIManager.displayMessage(`New device joined: ${browser} on ${os} (${ip})`, 'info', 3000);
+    if (clientName) {
+      UIManager.displayMessage(`New device joined: ${clientName}`, 'info', 3000);
+    } else {
+      UIManager.displayMessage(`New device joined: ${browser} on ${os}`, 'info', 3000);
+    }
   } else {
     UIManager.displayMessage('Another device joined the session', 'info', 3000);
   }

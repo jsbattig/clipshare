@@ -49,6 +49,10 @@ function getSocketConnection() {
   const persistentClientId = AuthModule.getClientId();
   console.log('Initializing auth socket with persistent client ID:', persistentClientId);
   
+  // Get client name if available
+  const sessionData = AuthModule.getSessionData();
+  const clientName = sessionData?.clientName || clientNameInput?.value || null;
+  
   // Create a new socket connection with improved settings
   const socket = io({
     path: '/socket.io',
@@ -60,13 +64,18 @@ function getSocketConnection() {
     secure: window.location.protocol === 'https:',
     // Try polling first for better cross-browser compatibility
     transports: ['polling', 'websocket'],
-    // Include persistent client ID in socket handshake
+    // Include persistent client ID and client name in socket handshake
     query: {
       clientIdentity: persistentClientId,
+      clientName: clientName,
       mode: 'auth',
       timestamp: Date.now()
     }
   });
+  
+  if (clientName) {
+    console.log('Including client name in connection:', clientName);
+  }
   
   // Set up event handlers
   socket.on('connect', () => {
