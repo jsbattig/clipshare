@@ -765,7 +765,7 @@ io.on('connection', (socket) => {
 
   // Handle session join/create
   socket.on('join-session', (data, callback) => {
-    const { sessionId, passphrase, browserInfo } = data;
+    const { sessionId, passphrase, browserInfo, clientName } = data;
     
     if (!sessionId || !passphrase) {
       return callback({ 
@@ -774,7 +774,21 @@ io.on('connection', (socket) => {
       });
     }
     
-    const result = sessionManager.joinSession(sessionId, passphrase);
+    // Check if session exists first - there's no joinSession function anymore
+    // Instead we'll check if session exists and then add the client directly
+    const checkResult = sessionManager.checkSessionExists(sessionId);
+    
+    // Create result object with default success
+    const result = { 
+      success: checkResult.exists, 
+      message: checkResult.exists ? 'Session joined' : 'Session does not exist'
+    };
+
+    if (checkResult.banned) {
+      result.success = false;
+      result.message = 'This session is temporarily banned for security reasons';
+      return callback(result);
+    }
     
     if (result.success) {
       // Store session info on socket object for easy access
