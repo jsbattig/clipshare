@@ -2,6 +2,7 @@
  * ClipShare Socket Event Handlers
  * 
  * Manages WebSocket events and communication with the server.
+ * Includes encryption for all content sent through the server.
  */
 
 import { CONFIG } from './config.js';
@@ -11,6 +12,7 @@ import * as ClipboardUtils from './clipboard-monitor.js';
 import * as ContentHandlers from './content-handlers.js';
 import * as Session from './session.js';
 import { getBrowserInfo, hashContent, getFormattedTime } from './utils.js';
+import { encryptClipboardContent, decryptClipboardContent } from './encryption.js';
 
 // Module state
 let socket = null;
@@ -204,30 +206,46 @@ function handleClipboardBroadcast(data) {
     return;
   }
   
-  console.log('Received clipboard update from another device:', data.type);
+  console.log('Received encrypted clipboard update from another device:', data.type);
   
-  // Handle different content types
-  if (data.type === 'file') {
-    // File content is handled separately
-    handleFileBroadcast(data);
-  } else {
-    // Update app content without sending to server
-    if (clipboardUpdateCallback) {
-      clipboardUpdateCallback(data, false);
+  // Get session data for decryption
+  const sessionData = Session.getCurrentSession();
+  if (!sessionData || !sessionData.passphrase) {
+    console.error('Cannot decrypt content: No valid session passphrase available');
+    UIManager.displayMessage('Cannot decrypt content: Session data not available', 'error', 5000);
+    return;
+  }
+  
+  try {
+    // Decrypt the content
+    const decryptedData = decryptClipboardContent(data, sessionData.passphrase);
+    
+    // Handle different content types
+    if (decryptedData.type === 'file') {
+      // File content is handled separately
+      handleFileBroadcast(decryptedData);
+    } else {
+      // Update app content without sending to server
+      if (clipboardUpdateCallback) {
+        clipboardUpdateCallback(decryptedData, false);
+      }
+      
+      // Update UI with informative message
+      UIManager.updateSyncStatus(`Received ${decryptedData.type} content - Click "Copy" to use it`);
+      UIManager.updateLastUpdated();
+      
+      const contentTypeMsg = decryptedData.type === 'image' ? 'Image' : 'Text';
+      UIManager.displayMessage(`${contentTypeMsg} content received from another device. Click "Copy" to use it in your clipboard.`, 'info', 5000);
     }
-    
-    // Update UI with informative message
-    UIManager.updateSyncStatus(`Received ${data.type} content - Click "Copy" to use it`);
-    UIManager.updateLastUpdated();
-    
-    const contentTypeMsg = data.type === 'image' ? 'Image' : 'Text';
-    UIManager.displayMessage(`${contentTypeMsg} content received from another device. Click "Copy" to use it in your clipboard.`, 'info', 5000);
+  } catch (error) {
+    console.error('Failed to decrypt clipboard content:', error);
+    UIManager.displayMessage('Failed to decrypt received content', 'error', 5000);
   }
 }
 
 /**
  * Handle file broadcast event
- * @param {Object} fileData - File data
+ * @param {Object} fileData - File data (already decrypted)
  */
 function handleFileBroadcast(fileData) {
   // Skip if this update originated from this client
@@ -286,12 +304,29 @@ export function sendClipboardUpdate(content) {
     timestamp: content.timestamp || Date.now()
   };
   
-  // Add detailed logging
-  console.log('Sending clipboard update:', enhancedContent.type);
+  // Get session data for encryption
+  const sessionData = Session.getCurrentSession();
+  if (!sessionData || !sessionData.passphrase) {
+    console.error('Cannot encrypt content: No valid session passphrase available');
+    UIManager.displayMessage('Cannot encrypt content: Session data not available', 'error', 5000);
+    return false;
+  }
   
-  // Send the event to the server
-  socket.emit('clipboard-update', enhancedContent);
-  return true;
+  try {
+    // Encrypt the content before sending
+    const encryptedContent = encryptClipboardContent(enhancedContent, sessionData.passphrase);
+    
+    // Add detailed logging
+    console.log('Sending encrypted clipboard update:', encryptedContent.type);
+    
+    // Send the encrypted event to the server
+    socket.emit('clipboard-update', encryptedContent);
+    return true;
+  } catch (error) {
+    console.error('Failed to encrypt and send clipboard content:', error);
+    UIManager.displayMessage('Failed to encrypt content for sending', 'error', 5000);
+    return false;
+  }
 }
 
 /**
@@ -313,12 +348,29 @@ export function sendFileUpdate(fileData) {
     timestamp: fileData.timestamp || Date.now()
   };
   
-  console.log(`Sending file update: ${enhancedFileData.fileName}, size: ${formatFileSize(enhancedFileData.fileSize)} bytes`);
-  UIManager.displayMessage(`Sharing file with other devices: ${enhancedFileData.fileName}`, 'info', 3000);
+  // Get session data for encryption
+  const sessionData = Session.getCurrentSession();
+  if (!sessionData || !sessionData.passphrase) {
+    console.error('Cannot encrypt file: No valid session passphrase available');
+    UIManager.displayMessage('Cannot encrypt file: Session data not available', 'error', 3000);
+    return false;
+  }
   
-  // Use separate file channel for sharing files
-  socket.emit('file-update', enhancedFileData);
-  return true;
+  try {
+    // Encrypt the file data before sending
+    const encryptedFileData = encryptClipboardContent(enhancedFileData, sessionData.passphrase);
+    
+    console.log(`Sending encrypted file update: ${fileData.fileName}, size: ${formatFileSize(fileData.fileSize)} bytes`);
+    UIManager.displayMessage(`Sharing encrypted file with other devices: ${fileData.fileName}`, 'info', 3000);
+    
+    // Use separate file channel for sharing files
+    socket.emit('file-update', encryptedFileData);
+    return true;
+  } catch (error) {
+    console.error('Failed to encrypt and send file:', error);
+    UIManager.displayMessage('Failed to encrypt file for sending', 'error', 3000);
+    return false;
+  }
 }
 
 /**

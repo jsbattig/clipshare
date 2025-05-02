@@ -3,12 +3,15 @@
  * 
  * Handles different content types (text, image, file) and their
  * respective operations for clipboard synchronization.
+ * Includes decryption support for encrypted content.
  */
 
 import { CONFIG } from './config.js';
 import { getElement, formatFileSize, getFileExtension } from './utils.js';
 import * as UIManager from './ui-manager.js';
 import * as ClipboardUtils from './clipboard-monitor.js';
+import * as Session from './session.js';
+import { decryptClipboardContent } from './encryption.js';
 
 // Module state
 let currentContentState = CONFIG.contentTypes.EMPTY;
