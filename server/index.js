@@ -987,6 +987,75 @@ io.on('connection', (socket) => {
     });
   });
   
+  // Handle chunked file metadata (first part of chunked file transfer)
+  socket.on('file-metadata', (metadataPacket) => {
+    const { sessionId } = socket;
+    
+    if (!sessionId) {
+      return; // Client not authenticated
+    }
+    
+    // Check if client is authorized in this session
+    const isAuthorized = sessionManager.isClientAuthorized(sessionId, socket.id);
+    if (!isAuthorized) {
+      console.warn(`Unauthorized file metadata from client ${socket.id}`);
+      socket.emit('session-inactive', { 
+        message: 'You are not authorized to share files in this session. Please reconnect.' 
+      });
+      return;
+    }
+    
+    // Add origin client information if not present
+    if (!metadataPacket.originClient) {
+      metadataPacket.originClient = socket.id;
+    }
+    
+    console.log(`File metadata received in session ${sessionId}: Transfer ID ${metadataPacket.transferId}`);
+    console.log(`Total chunks expected: ${metadataPacket.totalChunks}, Original file size: ${metadataPacket.fileSize || 0} bytes`);
+    
+    // Forward metadata to all other clients in session to prepare for chunks
+    const activeClients = sessionManager.getActiveSessionClients(sessionId);
+    activeClients.forEach(clientId => {
+      if (clientId !== socket.id) { // Don't send back to originator
+        io.to(clientId).emit('file-metadata', metadataPacket);
+      }
+    });
+  });
+  
+  // Handle individual file chunks
+  socket.on('file-chunk', (chunkData) => {
+    const { sessionId } = socket;
+    
+    if (!sessionId) {
+      return; // Client not authenticated
+    }
+    
+    // Check if client is authorized in this session
+    const isAuthorized = sessionManager.isClientAuthorized(sessionId, socket.id);
+    if (!isAuthorized) {
+      console.warn(`Unauthorized file chunk from client ${socket.id}`);
+      return;
+    }
+    
+    // Log chunk receipt (only log periodically to reduce noise)
+    if (chunkData.chunkIndex % 10 === 0 || chunkData.isLastChunk) {
+      console.log(`File chunk ${chunkData.chunkIndex}${chunkData.isLastChunk ? ' (final)' : ''} received for transfer ${chunkData.transferId}`);
+    }
+    
+    // Forward chunk to all other clients in session
+    const activeClients = sessionManager.getActiveSessionClients(sessionId);
+    activeClients.forEach(clientId => {
+      if (clientId !== socket.id) { // Don't send back to originator
+        io.to(clientId).emit('file-chunk', chunkData);
+      }
+    });
+    
+    // If this is the last chunk, log completion
+    if (chunkData.isLastChunk) {
+      console.log(`Chunked file transfer complete: ${chunkData.transferId}`);
+    }
+  });
+  
   // Handle client disconnect
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);

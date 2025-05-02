@@ -21,6 +21,9 @@ let fileUpdateCallback = null;
 let clientListCallback = null;
 let connectedClients = [];
 
+// Track chunked file transfers in progress
+const chunkedFileTransfers = {};
+
 /**
  * Initialize socket event handlers
  * @param {Object} socketInstance - Socket.io instance
@@ -57,6 +60,10 @@ function setupSocketListeners() {
   // Content events
   socket.on('clipboard-broadcast', handleClipboardBroadcast);
   socket.on('file-broadcast', handleFileBroadcast);
+  
+  // Chunked file transfer events
+  socket.on('file-metadata', handleFileMetadata);
+  socket.on('file-chunk', handleFileChunk);
   
   // Ping-pong mechanism
   socket.on('ping-clients', handleServerPing);
@@ -528,11 +535,18 @@ export function sendFileUpdate(fileData) {
     
     // Use try-catch to safely emit socket event
     try {
-      // Use separate file channel for sharing files
-      socket.emit('file-update', encryptedFileData);
-      console.log('Socket.emit completed successfully');
-      console.log('========== FILE UPLOAD COMPLETED ==========');
-      return true;
+      // Determine if we should use chunked transmission (for large files)
+      if (encryptedFileData.content && encryptedFileData.content.length > 100000) { // 100KB threshold
+        console.log(`Large file detected (${formatFileSize(encryptedFileData.content.length)}), using chunked transmission`);
+        return sendLargeFileInChunks(encryptedFileData, sessionData.sessionId, displayFilename);
+      } else {
+        // Small file - send in one piece as before
+        console.log('Small file, using single transmission');
+        socket.emit('file-update', encryptedFileData);
+        console.log('Socket.emit completed successfully');
+        console.log('========== FILE UPLOAD COMPLETED ==========');
+        return true;
+      }
     } catch (socketError) {
       console.error('Socket emit error:', socketError);
       UIManager.displayMessage('Failed to send file: Network error', 'error', 3000);
@@ -544,6 +558,104 @@ export function sendFileUpdate(fileData) {
     console.error('Unexpected error in sendFileUpdate:', unexpectedError);
     UIManager.displayMessage('Failed to send file due to an unexpected error', 'error', 3000);
     console.log('========== FILE UPLOAD FAILED: Unexpected error ==========');
+    return false;
+  }
+}
+
+/**
+ * Send a large file in chunks to prevent socket disconnections
+ * @param {Object} fileData - Complete encrypted file data
+ * @param {string} sessionId - Current session ID
+ * @param {string} displayFilename - Human-readable filename for messages
+ * @returns {boolean} Success status
+ */
+function sendLargeFileInChunks(fileData, sessionId, displayFilename) {
+  console.log('========== CHUNKED FILE UPLOAD STARTED ==========');
+  
+  try {
+    // Generate a unique transfer ID
+    const transferId = Date.now() + '-' + Math.random().toString(36).substring(2);
+    
+    // Extract the content that needs to be chunked
+    const content = fileData.content;
+    
+    // Define chunk size and calculate total chunks
+    const chunkSize = 50000; // 50KB chunks
+    const totalChunks = Math.ceil(content.length / chunkSize);
+    
+    console.log(`Preparing chunked transfer: ${transferId}`);
+    console.log(`Total file size: ${formatFileSize(content.length)}`);
+    console.log(`Chunk size: ${formatFileSize(chunkSize)}`);
+    console.log(`Total chunks: ${totalChunks}`);
+    
+    // Create a metadata packet without the actual content
+    const metadataPacket = {
+      ...fileData,
+      content: null, // Don't include content in metadata
+      transferId: transferId,
+      totalChunks: totalChunks,
+      isChunkedTransfer: true,
+      sessionId: sessionId,
+      originalFileSize: content.length
+    };
+    
+    // Display progress message to user
+    UIManager.displayMessage(`Sending file in chunks: ${displayFilename} (0%)`, 'info', 0);
+    
+    // Send metadata first
+    console.log('Sending file metadata packet');
+    socket.emit('file-metadata', metadataPacket);
+    
+    // Track how many chunks we've sent
+    let sentChunks = 0;
+    
+    // Send chunks with delay between them
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, content.length);
+      const chunk = content.substring(start, end);
+      
+      // Calculate delay based on chunk index
+      const delay = i * 50; // 50ms between chunks
+      
+      setTimeout(() => {
+        try {
+          // Send the chunk
+          socket.emit('file-chunk', {
+            transferId: transferId,
+            chunkIndex: i,
+            data: chunk,
+            sessionId: sessionId,
+            isLastChunk: i === totalChunks - 1
+          });
+          
+          // Increment sent counter
+          sentChunks++;
+          
+          // Update progress every few chunks or for the last one
+          if (sentChunks % 5 === 0 || sentChunks === totalChunks) {
+            const progress = Math.floor((sentChunks / totalChunks) * 100);
+            console.log(`Chunk progress: ${progress}% (${sentChunks}/${totalChunks})`);
+            UIManager.displayMessage(`Sending file in chunks: ${displayFilename} (${progress}%)`, 'info', 0);
+          }
+          
+          // If this is the last chunk, log completion
+          if (sentChunks === totalChunks) {
+            console.log('All chunks sent successfully');
+            UIManager.displayMessage(`File sent successfully: ${displayFilename}`, 'success', 3000);
+            console.log('========== CHUNKED FILE UPLOAD COMPLETED ==========');
+          }
+        } catch (chunkError) {
+          console.error(`Error sending chunk ${i}:`, chunkError);
+        }
+      }, delay);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error in chunked file transmission:', error);
+    UIManager.displayMessage('Error sending file chunks', 'error', 5000);
+    console.log('========== CHUNKED FILE UPLOAD FAILED ==========');
     return false;
   }
 }
@@ -721,6 +833,121 @@ function logConnectedClients() {
   console.log(`Active clients: ${activeCount} / ${connectedClients.length}`);
   
   return { total: connectedClients.length, active: activeCount };
+}
+
+/**
+ * Handle file metadata (first part of chunked file transfer)
+ * @param {Object} metadataPacket - File metadata packet
+ */
+function handleFileMetadata(metadataPacket) {
+  // Skip if this metadata originated from this client
+  if (metadataPacket.originClient === socket.id) {
+    return;
+  }
+  
+  console.log(`Received file metadata for chunked transfer: ${metadataPacket.transferId}`);
+  console.log(`Total chunks expected: ${metadataPacket.totalChunks}`);
+  
+  // Create a new entry in the chunkedFileTransfers map
+  chunkedFileTransfers[metadataPacket.transferId] = {
+    metadata: metadataPacket,
+    chunks: new Array(metadataPacket.totalChunks),
+    receivedChunks: 0,
+    inProgress: true,
+    startTime: Date.now()
+  };
+  
+  // Get best available filename for display
+  let displayName = metadataPacket.fileName || 'file';
+  
+  // Try to decrypt filename if it's encrypted
+  if (metadataPacket.fileName && metadataPacket.fileName.startsWith('U2FsdGVk')) {
+    try {
+      const sessionData = Session.getCurrentSession();
+      if (sessionData && sessionData.passphrase) {
+        const tempObject = {
+          type: 'file',
+          fileName: metadataPacket.fileName
+        };
+        
+        const decrypted = decryptClipboardContent(tempObject, sessionData.passphrase);
+        if (decrypted && decrypted.fileName) {
+          displayName = decrypted.fileName;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to decrypt filename in metadata:', err);
+    }
+  }
+  
+  // Display progress message to user
+  UIManager.displayMessage(`Receiving file: ${displayName} (0%)`, 'info', 0);
+}
+
+/**
+ * Handle individual file chunk
+ * @param {Object} chunkData - File chunk data
+ */
+function handleFileChunk(chunkData) {
+  // Skip if there's no transfer ID or it's not in our transfers map
+  if (!chunkData.transferId || !chunkedFileTransfers[chunkData.transferId]) {
+    console.warn(`Received chunk for unknown transfer: ${chunkData.transferId}`);
+    return;
+  }
+  
+  // Get the transfer info
+  const transfer = chunkedFileTransfers[chunkData.transferId];
+  
+  // Store the chunk in its position in the array
+  transfer.chunks[chunkData.chunkIndex] = chunkData.data;
+  transfer.receivedChunks++;
+  
+  // Calculate progress
+  const progress = Math.floor((transfer.receivedChunks / transfer.metadata.totalChunks) * 100);
+  
+  // Get display name for progress messages
+  let displayName = 'file';
+  if (transfer.metadata._displayFileName) {
+    displayName = transfer.metadata._displayFileName;
+  } else if (transfer.metadata.fileName) {
+    displayName = transfer.metadata.fileName;
+  }
+  
+  // Update progress periodically
+  if (transfer.receivedChunks % 5 === 0 || chunkData.isLastChunk) {
+    console.log(`Chunked file progress: ${progress}% (${transfer.receivedChunks}/${transfer.metadata.totalChunks})`);
+    UIManager.displayMessage(`Receiving file: ${displayName} (${progress}%)`, 'info', 0);
+  }
+  
+  // Check if this is the last chunk or if we've received all chunks
+  if (chunkData.isLastChunk || transfer.receivedChunks === transfer.metadata.totalChunks) {
+    console.log(`Chunked file transfer complete: ${chunkData.transferId}`);
+    
+    // Reassemble the file data
+    const completeContent = transfer.chunks.join('');
+    
+    // Create complete file data object
+    const completeFileData = {
+      ...transfer.metadata,
+      content: completeContent,
+      timestamp: Date.now()
+    };
+    
+    // Mark transfer as complete
+    transfer.inProgress = false;
+    transfer.completedTime = Date.now();
+    
+    // Process the complete file data as if it came from a regular file-broadcast
+    handleFileBroadcast(completeFileData);
+    
+    // Clean up after a delay (keep for debugging)
+    setTimeout(() => {
+      delete chunkedFileTransfers[chunkData.transferId];
+    }, 30000);
+    
+    // Show completion message
+    UIManager.displayMessage(`File received successfully: ${displayName}`, 'success', 3000);
+  }
 }
 
 /**
