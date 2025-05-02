@@ -6,11 +6,12 @@
  */
 
 import * as AuthModule from './modules/auth-module.js';
-import { getBrowserInfo } from './modules/utils.js';
+import { getBrowserInfo, getExternalIpAddress } from './modules/utils.js';
 
 // DOM Elements
 const authForm = document.getElementById('auth-form');
 const sessionIdInput = document.getElementById('session-id');
+const clientNameInput = document.getElementById('client-name');
 const passphraseInput = document.getElementById('passphrase');
 const authButton = document.getElementById('auth-button');
 const authMessage = document.getElementById('auth-message');
@@ -148,6 +149,11 @@ document.addEventListener('DOMContentLoaded', () => {
       passphraseInput.value = sessionData.passphrase;
     }
     
+    // Pre-fill client name if available
+    if (sessionData.clientName) {
+      clientNameInput.value = sessionData.clientName;
+    }
+    
     displayMessage(`Session "${sessionData.sessionId}" data found. Click Join to reconnect.`, 'info');
   }
   // Don't create socket until it's needed
@@ -169,6 +175,7 @@ authForm.addEventListener('submit', (e) => {
   e.preventDefault();
   
   const sessionId = sessionIdInput.value.trim();
+  const clientName = clientNameInput.value.trim();
   const passphrase = passphraseInput.value;
   
   if (!sessionId || !passphrase) {
@@ -176,24 +183,49 @@ authForm.addEventListener('submit', (e) => {
     return;
   }
   
+  if (!clientName) {
+    displayMessage('Please provide a client name', 'error');
+    return;
+  }
+  
   // Disable form during login attempt
   setFormLoading(true);
   
   // Show authentication status
-  showAuthStatus('Checking session existence...');
+  showAuthStatus('Detecting your IP address...');
   
-  // Attempt login
-  attemptLogin(sessionId, passphrase);
+  // Try to get the external IP with a timeout
+  getExternalIpAddress(3000)
+    .then(ipAddress => {
+      console.log('External IP detected:', ipAddress);
+      showAuthStatus('Checking session existence...');
+      
+      // Attempt login with the client name and external IP
+      attemptLogin(sessionId, passphrase, clientName, ipAddress);
+    })
+    .catch(error => {
+      console.warn('Could not detect external IP:', error);
+      showAuthStatus('Checking session existence...');
+      
+      // Proceed with login anyway, using default IP unknown value
+      attemptLogin(sessionId, passphrase, clientName, '<IP unknown>');
+    });
 });
 
 /**
  * Attempt to join or create a session
  * @param {string} sessionId - Session identifier
  * @param {string} passphrase - Secret passphrase
+ * @param {string} clientName - Client name for identification
+ * @param {string} externalIp - External IP address
  */
-function attemptLogin(sessionId, passphrase) {
+function attemptLogin(sessionId, passphrase, clientName, externalIp) {
   // Get browser information for user-agent tracking
   const browserInfo = getBrowserInfo();
+  
+  // Add client name and external IP to browser info
+  browserInfo.clientName = clientName;
+  browserInfo.externalIp = externalIp;
   
   // Get or create a socket connection
   const socket = getSocketConnection();
@@ -206,7 +238,7 @@ function attemptLogin(sessionId, passphrase) {
     // Wait for connection before proceeding
     socket.once('connect', () => {
       console.log('Socket connected, proceeding with authentication');
-      proceedWithAuthentication(socket, sessionId, passphrase);
+      proceedWithAuthentication(socket, sessionId, passphrase, clientName, externalIp);
     });
     
     // Set connection timeout
@@ -222,7 +254,7 @@ function attemptLogin(sessionId, passphrase) {
   }
   
   // If already connected, proceed immediately
-  proceedWithAuthentication(socket, sessionId, passphrase);
+  proceedWithAuthentication(socket, sessionId, passphrase, clientName, externalIp);
 }
 
 /**
@@ -230,8 +262,10 @@ function attemptLogin(sessionId, passphrase) {
  * @param {Object} socket - Socket.io instance
  * @param {string} sessionId - Session identifier
  * @param {string} passphrase - Secret passphrase
+ * @param {string} clientName - Client name for identification
+ * @param {string} externalIp - External IP address
  */
-function proceedWithAuthentication(socket, sessionId, passphrase) {
+function proceedWithAuthentication(socket, sessionId, passphrase, clientName, externalIp) {
   // Initialize auth module with the socket
   AuthModule.init(socket, { 
     onSuccess: handleAuthSuccess,
@@ -240,7 +274,7 @@ function proceedWithAuthentication(socket, sessionId, passphrase) {
   });
   
   // Use the auth module with client-side encryption
-  AuthModule.createOrJoinSession(sessionId, passphrase, updateAuthStatus)
+  AuthModule.createOrJoinSession(sessionId, passphrase, updateAuthStatus, clientName, externalIp)
     .then(() => {
       hideAuthStatus();
       displayMessage('Session joined successfully! Redirecting...', 'success');
@@ -335,6 +369,7 @@ function displayMessage(message, type = 'info') {
 function setFormLoading(isLoading) {
   authButton.disabled = isLoading;
   sessionIdInput.disabled = isLoading;
+  clientNameInput.disabled = isLoading;
   passphraseInput.disabled = isLoading;
   if (passwordToggle) passwordToggle.disabled = isLoading;
   

@@ -330,11 +330,13 @@ export function updateConnectedDevices(clients) {
     
     const deviceName = document.createElement('div');
     deviceName.className = 'device-name';
-    deviceName.textContent = `${client.browserName} on ${client.osName}`;
+    // Use client name if available, otherwise fallback to browser and OS
+    deviceName.textContent = client.browserInfo?.clientName || `${client.browserName} on ${client.osName}`;
     
     const deviceIp = document.createElement('div');
     deviceIp.className = 'device-ip';
-    deviceIp.textContent = client.ip || 'IP unknown';
+    // Use external IP if available, otherwise show default message
+    deviceIp.textContent = client.browserInfo?.externalIp || '<IP not available>';
     
     const deviceTime = document.createElement('div');
     deviceTime.className = 'device-time';

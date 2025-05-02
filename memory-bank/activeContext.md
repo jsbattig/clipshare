@@ -17,6 +17,14 @@ Initial implementation of the application with:
 - Docker and Docker Compose configuration
 - GitHub integration with Actions workflow
 
+**Client Identification Improvement (May 2, 2025):**
+- Added mandatory "Client Name" field to login form for better device identification
+- Implemented external IP detection using ipify.org API with appropriate fallbacks
+- Enhanced the Connected Devices panel to show user-provided names instead of "Unknown on Unknown"
+- Improved client tracking by storing the client name and IP with session data
+- Eliminated reliance on proxy IPs which were providing irrelevant information
+- Enhanced browser info tracking to include client identification details
+
 **Promise Chain Bug Fix (May 2, 2025):**
 - Fixed authentication promise chain error that was causing uncaught exceptions
 - Identified that `UIManager.updateConnectionStatus()` was being called but didn't exist

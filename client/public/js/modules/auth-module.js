@@ -96,9 +96,11 @@ function setupSocketListeners() {
  * @param {string} sessionId - Session identifier
  * @param {string} passphrase - Secret passphrase (never sent to server)
  * @param {Function} onStatusUpdate - Callback for status updates
+ * @param {string} clientName - Client name for identification (optional)
+ * @param {string} externalIp - External IP address (optional)
  * @returns {Promise} Promise that resolves on successful auth
  */
-export function createOrJoinSession(sessionId, passphrase, onStatusUpdate) {
+export function createOrJoinSession(sessionId, passphrase, onStatusUpdate, clientName = '', externalIp = '') {
   return new Promise((resolve, reject) => {
     if (!socket || !socket.connected) {
       reject('Socket not connected');
@@ -128,7 +130,7 @@ export function createOrJoinSession(sessionId, passphrase, onStatusUpdate) {
       if (response.exists && response.hasActiveClients) {
         // Session exists with active clients, need verification
         updateStatus('Session exists with active clients. Requesting to join...');
-        requestToJoinSession(sessionId, passphrase, resolve, reject);
+        requestToJoinSession(sessionId, passphrase, resolve, reject, clientName, externalIp);
       } else if (response.banned) {
         // Session is banned
         updateStatus('This session has been banned temporarily for security reasons', 'error');
@@ -136,11 +138,11 @@ export function createOrJoinSession(sessionId, passphrase, onStatusUpdate) {
       } else if (response.exists) {
         // Session exists but has no active clients - we still need to join it
         updateStatus('Session exists but has no active clients. Requesting to join...');
-        requestToJoinSession(sessionId, passphrase, resolve, reject);
+        requestToJoinSession(sessionId, passphrase, resolve, reject, clientName, externalIp);
       } else {
         // Session doesn't exist - create new
         updateStatus('Session does not exist. Creating new session...');
-        createNewSession(sessionId, passphrase, resolve, reject);
+        createNewSession(sessionId, passphrase, resolve, reject, clientName, externalIp);
       }
     });
   });
@@ -152,8 +154,10 @@ export function createOrJoinSession(sessionId, passphrase, onStatusUpdate) {
  * @param {string} passphrase - Secret passphrase
  * @param {Function} resolve - Promise resolve function
  * @param {Function} reject - Promise reject function
+ * @param {string} clientName - Client name for identification (optional)
+ * @param {string} externalIp - External IP address (optional)
  */
-function requestToJoinSession(sessionId, passphrase, resolve, reject) {
+function requestToJoinSession(sessionId, passphrase, resolve, reject, clientName = '', externalIp = '') {
   // Generate encrypted verification data
   const verificationData = generateVerificationData(sessionId, passphrase);
   
@@ -179,7 +183,7 @@ function requestToJoinSession(sessionId, passphrase, resolve, reject) {
       updateStatus('Join request sent. Waiting for verification...');
       
       // Save session data now for potential later use
-      saveSessionData(sessionId, passphrase);
+      saveSessionData(sessionId, passphrase, clientName, externalIp);
       
       // Set up verification timeout
       setTimeout(() => {
@@ -203,8 +207,10 @@ function requestToJoinSession(sessionId, passphrase, resolve, reject) {
  * @param {string} passphrase - Secret passphrase
  * @param {Function} resolve - Promise resolve function
  * @param {Function} reject - Promise reject function
+ * @param {string} clientName - Client name for identification (optional)
+ * @param {string} externalIp - External IP address (optional)
  */
-function createNewSession(sessionId, passphrase, resolve, reject) {
+function createNewSession(sessionId, passphrase, resolve, reject, clientName = '', externalIp = '') {
   if (AUTH_CONSTANTS.DEBUG_MODE) {
     console.log(`Creating new session '${sessionId}'`);
   }
@@ -216,7 +222,7 @@ function createNewSession(sessionId, passphrase, resolve, reject) {
     
     if (response.success) {
       // Save session data locally (passphrase never sent to server)
-      saveSessionData(sessionId, passphrase);
+      saveSessionData(sessionId, passphrase, clientName, externalIp);
       updateStatus('Session created successfully!', 'success');
       
       // Resolve with session data
@@ -430,9 +436,17 @@ function decryptVerification(encrypted, passphrase) {
  * Save session data to localStorage
  * @param {string} sessionId - Session identifier
  * @param {string} passphrase - Secret passphrase
+ * @param {string} clientName - Client name for identification (optional)
+ * @param {string} externalIp - External IP address (optional)
  */
-export function saveSessionData(sessionId, passphrase) {
-  const sessionData = { sessionId, passphrase, timestamp: Date.now() };
+export function saveSessionData(sessionId, passphrase, clientName = '', externalIp = '') {
+  const sessionData = { 
+    sessionId, 
+    passphrase, 
+    timestamp: Date.now(),
+    clientName: clientName || '',
+    externalIp: externalIp || ''
+  };
   localStorage.setItem(AUTH_CONSTANTS.STORAGE_KEY, JSON.stringify(sessionData));
 }
 
@@ -524,12 +538,17 @@ function getBrowserInfo() {
   // Get persistent client ID to track client across page navigations
   const persistentId = getOrCreateClientId();
   
+  // Get session data to fetch clientName and externalIp if available
+  const sessionData = getSessionData();
+  
   return {
     name: browserName,
     os: osName,
     userAgent,
     windowId: Math.random().toString(36).substring(2, 10), // Generate a unique window ID
     persistentId: persistentId, // Include persistent ID for tracking across page navigations
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    clientName: sessionData?.clientName || '', // Include client name from session data
+    externalIp: sessionData?.externalIp || '' // Include external IP from session data
   };
 }
