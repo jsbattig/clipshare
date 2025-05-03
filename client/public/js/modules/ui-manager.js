@@ -197,8 +197,40 @@ export function displayFileContent(fileData) {
   }
   // PRIORITY 4: Use raw fileName (may need post-processing)
   else if (fileData.fileName) {
-    displayFileName = fileData.fileName;
-    console.log('UI using raw fileName for display, might need decryption');
+    if (fileData.fileName.startsWith('U2FsdGVk')) {
+      console.log('Detected encrypted filename in displayFileContent, attempting to decrypt');
+      try {
+        const sessionData = window.Session.getCurrentSession();
+        if (sessionData && sessionData.passphrase) {
+          // Create a mini-object just for decrypting the filename
+          const filenamePart = {
+            type: 'file',
+            fileName: fileData.fileName
+          };
+          
+          const decrypted = window.decryptClipboardContent(filenamePart, sessionData.passphrase);
+          
+          if (decrypted && decrypted.fileName) {
+            displayFileName = decrypted.fileName;
+            console.log('Successfully decrypted filename in displayFileContent:', displayFileName);
+            
+            fileData._displayFileName = displayFileName;
+          } else {
+            displayFileName = fileData.fileName;
+            console.log('Failed to decrypt filename in displayFileContent');
+          }
+        } else {
+          displayFileName = fileData.fileName;
+          console.log('No session data available for decryption in displayFileContent');
+        }
+      } catch (err) {
+        console.error('Error decrypting filename in displayFileContent:', err);
+        displayFileName = fileData.fileName;
+      }
+    } else {
+      displayFileName = fileData.fileName;
+      console.log('UI using raw fileName for display (not encrypted):', displayFileName);
+    }
   }
   
   // Update file info if elements exist
@@ -206,16 +238,15 @@ export function displayFileContent(fileData) {
   if (fileSizeEl) fileSizeEl.textContent = formatFileSize(fileData.fileSize || 0);
   if (fileMimeEl) fileMimeEl.textContent = fileData.fileType || 'unknown/type';
   
-// Set file extension in icon if we can determine it
-if (fileTypeIcon && displayFileName) {
-  const extension = displayFileName.split('.').pop().toLowerCase();
-  if (extension) {
-    fileTypeIcon.setAttribute('data-extension', extension);
-  } else {
-    fileTypeIcon.removeAttribute('data-extension');
+  // Set file extension in icon if we can determine it
+  if (fileTypeIcon && displayFileName) {
+    const extension = displayFileName.split('.').pop().toLowerCase();
+    if (extension) {
+      fileTypeIcon.setAttribute('data-extension', extension);
+    } else {
+      fileTypeIcon.removeAttribute('data-extension');
+    }
   }
-}
-
 }
 
 /**
