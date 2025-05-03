@@ -38,7 +38,7 @@ const io = new Server(server, {
 // Constants for ping mechanism
 const PING_INTERVAL = 5000;  // 5 seconds between pings
 const PING_TIMEOUT = 2500;   // 2.5 seconds to wait for responses before cleanup
-const FORCE_RESET_INTERVAL = 60000; // 60 seconds between force resets
+const FORCE_RESET_INTERVAL = 600000; // 10 minutes between force resets
 
 // Function to format current time for logging
 function getLogTimestamp() {
