@@ -601,32 +601,32 @@ export function getDisplayFileData(fileData, defaultName = 'Unknown file') {
   // Create a copy for display purposes
   const displayData = {...fileData};
   
-  // If the filename looks encrypted (starts with the AES marker), try to decrypt it
+  // SIMPLIFIED: Always use window.originalFileData if available (our single source of truth)
+  if (window.originalFileData && window.originalFileData.fileName) {
+    console.log('getDisplayFileData: Using originalFileData.fileName as source of truth:', window.originalFileData.fileName);
+    displayData.fileName = window.originalFileData.fileName;
+    return displayData;
+  }
+  
+  // FALLBACKS in priority order:
+  
+  // 1. Check if the file has a pre-decrypted display filename
+  if (fileData._displayFileName) {
+    console.log('getDisplayFileData: Using _displayFileName:', fileData._displayFileName);
+    displayData.fileName = fileData._displayFileName;
+    return displayData;
+  }
+  
+  // 2. Check if we have original data in the file object
+  if (fileData._originalData && fileData._originalData.fileName) {
+    console.log('getDisplayFileData: Using _originalData.fileName:', fileData._originalData.fileName);
+    displayData.fileName = fileData._originalData.fileName;
+    return displayData;
+  }
+  
   if (displayData.fileName && displayData.fileName.startsWith('U2FsdGVk')) {
-    try {
-      // Get session data for decryption
-      const sessionData = Session.getCurrentSession();
-      if (sessionData && sessionData.passphrase) {
-        console.log('Attempting to decrypt filename for display');
-        
-        // Create a mini-object just for decrypting the filename
-        const filenamePart = {
-          type: 'file',
-          _encrypted: true,
-          fileName: displayData.fileName
-        };
-        
-        // Decrypt just the filename
-        const decrypted = decryptClipboardContent(filenamePart, sessionData.passphrase);
-        
-        // Use the decrypted filename
-        displayData.fileName = decrypted.fileName || defaultName;
-        console.log('Successfully decrypted filename:', displayData.fileName);
-      }
-    } catch (err) {
-      console.error('Error decrypting filename for display:', err);
-      displayData.fileName = defaultName;
-    }
+    console.log('Filename appears to be encrypted, using default name');
+    displayData.fileName = defaultName;
   }
   
   return displayData;
