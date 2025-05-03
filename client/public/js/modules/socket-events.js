@@ -907,6 +907,11 @@ function processReceivedFile(fileData) {
       }
     }
     
+    if (window.ContentHandlers && window.ContentHandlers.getDisplayFileData) {
+      console.log('Using ContentHandlers.getDisplayFileData to ensure proper filename display');
+      fileData = window.ContentHandlers.getDisplayFileData(fileData);
+    }
+    
     // Still try to handle the file even if decryption failed
     if (fileUpdateCallback) {
       fileUpdateCallback(fileData);
