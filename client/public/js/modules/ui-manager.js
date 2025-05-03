@@ -544,7 +544,7 @@ export function setupSharedFilesObserver() {
     return;
   }
   
-  console.log('Setting up observer for shared files section');
+  console.log('Setting up simplified observer for shared files section');
   
   // Create a new MutationObserver to watch for changes
   sharedFilesObserver = new MutationObserver((mutations) => {
@@ -556,7 +556,7 @@ export function setupSharedFilesObserver() {
     
     try {
       // Find any elements with encrypted filenames
-      const encryptedElements = fileContainer.querySelectorAll('.file-sharing-section .file-name, .file-sharing-section h2, .file-sharing-section h3');
+      const encryptedElements = fileContainer.querySelectorAll('.file-sharing-section .file-name, .file-sharing-section h2, .file-sharing-section h3, .file-sharing-section .banner-message');
       
       // Check each element for encrypted content
       encryptedElements.forEach(element => {
@@ -564,7 +564,13 @@ export function setupSharedFilesObserver() {
         if (content && content.startsWith('U2FsdGVk')) {
           console.log('Found encrypted filename in shared files section:', content.substring(0, 20) + '...');
           
-          // Use our helper function to decrypt
+          if (window.originalFileData && window.originalFileData.fileName) {
+            console.log('Using originalFileData.fileName for decryption:', window.originalFileData.fileName);
+            element.textContent = window.originalFileData.fileName;
+            return;
+          }
+          
+          // Use our helper function to decrypt as fallback
           if (window.ContentHandlers && window.ContentHandlers.getDecryptedFilename) {
             const decryptedName = window.ContentHandlers.getDecryptedFilename(content);
             if (decryptedName && decryptedName !== content) {

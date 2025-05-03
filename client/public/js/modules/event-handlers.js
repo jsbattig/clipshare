@@ -134,11 +134,35 @@ function setupDropZone() {
  * Set up file-related events
  */
 function setupFileEvents() {
-  // Share File button
+  // Create a hidden file input element for the file selection dialog
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.multiple = true; // Allow multiple file selection
+  fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
+  
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      
+      if (files.length === 1) {
+        // Directly call handleSingleFileUpload with the raw File object
+        console.log('File selected via dialog:', files[0].name);
+        UIManager.displayMessage(`Processing file: ${files[0].name}...`, 'info', 0);
+        FileOperations.handleSingleFileUpload(files[0], processSingleFileCallback);
+      } else {
+        console.log('Multiple files selected via dialog:', files.length);
+        FileOperations.handleMultipleFiles(files, handleMultipleFilesSelected);
+      }
+    }
+  });
+  
+  // Share File button - directly opens file selection dialog
   const shareFileBtn = getElement('share-file-btn');
   if (shareFileBtn) {
     shareFileBtn.addEventListener('click', () => {
-      UIManager.showDropZone('Drop file(s) to share with all devices');
+      // Directly open file selection dialog
+      fileInput.click();
     });
   }
   
@@ -263,6 +287,14 @@ function handleTextareaInput() {
   } else {
     UIManager.updateSyncStatus('Failed to send - check connection');
   }
+}
+
+/**
+ * Callback function for processed single file
+ * @param {Object} fileData - Processed file data
+ */
+function processSingleFileCallback(fileData) {
+  handleSingleFileUpload(fileData);
 }
 
 /**

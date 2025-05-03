@@ -111,8 +111,17 @@ export function connectToSession(onSuccess, onFailure, statusUpdateFn) {
 export function logout() {
   console.log('Logout initiated - cleaning up connections');
   
-  // Clear session data
-  localStorage.removeItem(CONFIG.storage.sessionKey);
+  // Use AuthModule's clearSessionData if available
+  if (window.AuthModule && typeof window.AuthModule.clearSessionData === 'function') {
+    console.log('Using AuthModule.clearSessionData to clear tab-specific session data');
+    window.AuthModule.clearSessionData();
+  } else {
+    console.log('Fallback: removing session data directly from localStorage');
+    localStorage.removeItem(CONFIG.storage.sessionKey);
+  }
+  
+  // Clear module-level session data
+  sessionData = null;
   
   // Disconnect and clean up any global socket
   if (window.appSocket) {
@@ -215,8 +224,20 @@ export function getCurrentSession() {
     return sessionData;
   }
   
-  // If not available or incomplete, try to get from localStorage directly
+  // If not available or incomplete, try to get from auth-module's getSessionData function
   try {
+    // Check if auth-module's getSessionData function is available
+    if (window.AuthModule && typeof window.AuthModule.getSessionData === 'function') {
+      const authModuleData = window.AuthModule.getSessionData();
+      if (authModuleData && authModuleData.sessionId && authModuleData.passphrase) {
+        // Update our module-level variable for future use
+        sessionData = authModuleData;
+        console.log(`Retrieved session data from AuthModule: ${authModuleData.sessionId}`);
+        return authModuleData;
+      }
+    }
+    
+    // Fallback to direct localStorage access if auth-module is not available
     const sessionDataStr = localStorage.getItem(CONFIG.storage.sessionKey);
     if (sessionDataStr) {
       const parsedData = JSON.parse(sessionDataStr);
@@ -228,7 +249,7 @@ export function getCurrentSession() {
       }
     }
   } catch (e) {
-    console.error('Error parsing session data from localStorage:', e);
+    console.error('Error retrieving session data:', e);
   }
   
   console.warn('No valid session data found in memory or localStorage');
