@@ -146,8 +146,12 @@ function setupFileEvents() {
       const files = Array.from(e.target.files);
       
       if (files.length === 1) {
+        // Directly call handleSingleFileUpload with the raw File object
+        console.log('File selected via dialog:', files[0].name);
+        UIManager.displayMessage(`Processing file: ${files[0].name}...`, 'info', 0);
         FileOperations.handleSingleFileUpload(files[0], handleSingleFileUpload);
       } else {
+        console.log('Multiple files selected via dialog:', files.length);
         FileOperations.handleMultipleFiles(files, handleMultipleFilesSelected);
       }
     }
