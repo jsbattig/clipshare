@@ -153,18 +153,12 @@ function setupFileEvents() {
     }
   });
   
-  // Share File button - now opens file selection dialog
+  // Share File button - directly opens file selection dialog
   const shareFileBtn = getElement('share-file-btn');
   if (shareFileBtn) {
     shareFileBtn.addEventListener('click', () => {
-      // Offer both options: file dialog and drop zone
-      const useFileDialog = confirm("Select files using file dialog? Click Cancel to use drag & drop instead.");
-      
-      if (useFileDialog) {
-        fileInput.click();
-      } else {
-        UIManager.showDropZone('Drop file(s) to share with all devices');
-      }
+      // Directly open file selection dialog
+      fileInput.click();
     });
   }
   
