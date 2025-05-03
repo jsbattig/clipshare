@@ -625,8 +625,31 @@ export function getDisplayFileData(fileData, defaultName = 'Unknown file') {
   }
   
   if (displayData.fileName && displayData.fileName.startsWith('U2FsdGVk')) {
-    console.log('Filename appears to be encrypted, using default name');
-    displayData.fileName = defaultName;
+    try {
+      const sessionData = window.Session.getCurrentSession();
+      if (sessionData && sessionData.passphrase) {
+        console.log('Attempting to decrypt filename for display');
+        
+        // Create a mini-object just for decrypting the filename
+        const filenamePart = {
+          type: 'file',
+          fileName: displayData.fileName
+        };
+        
+        const decrypted = window.decryptClipboardContent(filenamePart, sessionData.passphrase);
+        
+        // Use the decrypted filename
+        if (decrypted && decrypted.fileName) {
+          displayData.fileName = decrypted.fileName;
+          console.log('Successfully decrypted filename:', displayData.fileName);
+        } else {
+          displayData.fileName = defaultName;
+        }
+      }
+    } catch (err) {
+      console.error('Error decrypting filename for display:', err);
+      displayData.fileName = defaultName;
+    }
   }
   
   return displayData;

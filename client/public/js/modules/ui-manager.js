@@ -216,11 +216,6 @@ if (fileTypeIcon && displayFileName) {
   }
 }
 
-// Schedule a post-render check to catch any text that might have been
-// updated by other code paths after our function returns
-setTimeout(() => {
-  ensureDecryptedFilenameDisplay();
-}, 0);
 }
 
 /**
@@ -555,31 +550,66 @@ export function setupSharedFilesObserver() {
     isProcessingSharedFiles = true;
     
     try {
-      // Find any elements with encrypted filenames
-      const encryptedElements = fileContainer.querySelectorAll('.file-sharing-section .file-name, .file-sharing-section h2, .file-sharing-section h3, .file-sharing-section .banner-message');
+      // Find all filename elements in the shared files section
+      const filenameElements = fileContainer.querySelectorAll('.file-sharing-section .file-name, .file-sharing-section h2, .file-sharing-section h3, .file-sharing-section .banner-message');
       
-      // Check each element for encrypted content
-      encryptedElements.forEach(element => {
-        const content = element.textContent;
-        if (content && content.startsWith('U2FsdGVk')) {
-          console.log('Found encrypted filename in shared files section:', content.substring(0, 20) + '...');
+      let madeChanges = false;
+      
+      // Temporarily disconnect observer to prevent recursive triggers during batch processing
+      sharedFilesObserver.disconnect();
+      
+      try {
+        // Check each element for content that needs decryption
+        filenameElements.forEach(element => {
+          const content = element.textContent;
           
-          if (window.originalFileData && window.originalFileData.fileName) {
-            console.log('Using originalFileData.fileName for decryption:', window.originalFileData.fileName);
-            element.textContent = window.originalFileData.fileName;
+          if (!content || element.hasAttribute('data-decrypted')) {
             return;
           }
           
-          // Use our helper function to decrypt as fallback
-          if (window.ContentHandlers && window.ContentHandlers.getDecryptedFilename) {
+          const needsDecryption = content.startsWith('U2FsdGVk');
+          if (!needsDecryption) {
+            element.setAttribute('data-decrypted', 'true');
+            return;
+          }
+          
+          console.log('Found encrypted filename in shared files section:', content.substring(0, 20) + '...');
+          
+          let decryptedSuccessfully = false;
+          
+          // APPROACH 1: Try using window.originalFileData (highest priority)
+          if (window.originalFileData && window.originalFileData.fileName) {
+            console.log('Using originalFileData.fileName for decryption:', window.originalFileData.fileName);
+            element.textContent = window.originalFileData.fileName;
+            decryptedSuccessfully = true;
+          }
+          // APPROACH 2: Use ContentHandlers.getDecryptedFilename as fallback
+          else if (window.ContentHandlers && window.ContentHandlers.getDecryptedFilename) {
             const decryptedName = window.ContentHandlers.getDecryptedFilename(content);
             if (decryptedName && decryptedName !== content) {
               console.log('Decrypted shared files filename to:', decryptedName);
               element.textContent = decryptedName;
+              decryptedSuccessfully = true;
             }
           }
+          
+          if (decryptedSuccessfully) {
+            element.setAttribute('data-decrypted', 'true');
+            madeChanges = true;
+          }
+        });
+        
+        if (!madeChanges) {
+          console.log('No encrypted filenames found or all already processed');
         }
-      });
+      } finally {
+        // Always reconnect the observer, even if errors occur
+        sharedFilesObserver.observe(fileContainer, {
+          childList: true,
+          characterData: true,
+          subtree: true
+        });
+      }
     } finally {
       // Always reset the processing flag
       isProcessingSharedFiles = false;
@@ -607,17 +637,41 @@ export function setupFilenameObserver() {
     // Don't do anything if we're currently processing
     if (isDecryptingFilename) return;
     
-    // Process only once per batch of mutations
+    // Process only once per batch of mutations and only if needed
     let shouldProcess = false;
     for (const mutation of mutations) {
       if (mutation.type === 'characterData' || mutation.type === 'childList') {
-        shouldProcess = true;
-        break;
+        const content = fileNameEl.textContent;
+        if (content && content.startsWith('U2FsdGVk') && !fileNameEl.hasAttribute('data-decrypted')) {
+          shouldProcess = true;
+          break;
+        }
       }
     }
     
     if (shouldProcess) {
-      ensureDecryptedFilenameDisplay();
+      // Set flag to prevent recursive processing
+      isDecryptingFilename = true;
+      
+      try {
+        // Temporarily disconnect observer to prevent recursive triggers
+        filenameObserver.disconnect();
+        
+        // Process the filename
+        ensureDecryptedFilenameDisplay();
+        
+        // Mark as decrypted to prevent reprocessing
+        fileNameEl.setAttribute('data-decrypted', 'true');
+        
+        filenameObserver.observe(fileNameEl, { 
+          childList: true, 
+          characterData: true,
+          subtree: true
+        });
+      } finally {
+        // Always reset processing flag
+        isDecryptingFilename = false;
+      }
     }
   });
   
