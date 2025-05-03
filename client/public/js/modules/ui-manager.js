@@ -627,20 +627,21 @@ export function setupSharedFilesObserver() {
   const filenameElements = fileContainer.querySelectorAll('.file-name, h2, h3, .banner-message');
   console.log('Processing existing filename elements on page load:', filenameElements.length);
   
-  filenameElements.forEach(element => {
+  // Function to process a single element for decryption
+  const processElement = (element) => {
     const content = element.textContent;
     
     if (!content || element.hasAttribute('data-decrypted')) {
-      return;
+      return false;
     }
     
     const needsDecryption = content.startsWith('U2FsdGVk');
     if (!needsDecryption) {
       element.setAttribute('data-decrypted', 'true');
-      return;
+      return false;
     }
     
-    console.log('Found existing encrypted filename:', content.substring(0, 20) + '...');
+    console.log('Found encrypted filename:', content.substring(0, 20) + '...');
     
     let decryptedSuccessfully = false;
     
@@ -654,7 +655,7 @@ export function setupSharedFilesObserver() {
     else if (window.ContentHandlers && window.ContentHandlers.getDecryptedFilename) {
       const decryptedName = window.ContentHandlers.getDecryptedFilename(content);
       if (decryptedName && decryptedName !== content) {
-        console.log('Decrypted existing filename to:', decryptedName);
+        console.log('Decrypted filename to:', decryptedName);
         element.textContent = decryptedName;
         decryptedSuccessfully = true;
       }
@@ -662,8 +663,39 @@ export function setupSharedFilesObserver() {
     
     if (decryptedSuccessfully) {
       element.setAttribute('data-decrypted', 'true');
+      return true;
     }
-  });
+    
+    return false;
+  };
+  
+  // Process all existing elements
+  filenameElements.forEach(processElement);
+  
+  // Set up a periodic check for elements that need decryption
+  const periodicCheck = () => {
+    const elements = fileContainer.querySelectorAll('.file-name, h2, h3, .banner-message');
+    let anyDecrypted = false;
+    
+    elements.forEach(element => {
+      if (processElement(element)) {
+        anyDecrypted = true;
+      }
+    });
+    
+    if (anyDecrypted) {
+      console.log('Periodic check decrypted one or more filenames');
+    }
+  };
+  
+  let checkCount = 0;
+  const checkInterval = setInterval(() => {
+    periodicCheck();
+    checkCount++;
+    if (checkCount >= 10) {
+      clearInterval(checkInterval);
+    }
+  }, 1000);
   
   return sharedFilesObserver;
 }
