@@ -134,11 +134,37 @@ function setupDropZone() {
  * Set up file-related events
  */
 function setupFileEvents() {
-  // Share File button
+  // Create a hidden file input element for the file selection dialog
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.multiple = true; // Allow multiple file selection
+  fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
+  
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      
+      if (files.length === 1) {
+        FileOperations.handleSingleFileUpload(files[0], handleSingleFileUpload);
+      } else {
+        FileOperations.handleMultipleFiles(files, handleMultipleFilesSelected);
+      }
+    }
+  });
+  
+  // Share File button - now opens file selection dialog
   const shareFileBtn = getElement('share-file-btn');
   if (shareFileBtn) {
     shareFileBtn.addEventListener('click', () => {
-      UIManager.showDropZone('Drop file(s) to share with all devices');
+      // Offer both options: file dialog and drop zone
+      const useFileDialog = confirm("Select files using file dialog? Click Cancel to use drag & drop instead.");
+      
+      if (useFileDialog) {
+        fileInput.click();
+      } else {
+        UIManager.showDropZone('Drop file(s) to share with all devices');
+      }
     });
   }
   
