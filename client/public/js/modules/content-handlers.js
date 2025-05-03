@@ -572,6 +572,60 @@ export function setSharedFile(fileData) {
   }
 }
 
+/**
+ * Get decrypted filename from any encrypted filename
+ * @param {string} encryptedFileName - Potentially encrypted filename
+ * @returns {string} Decrypted filename or original if already decrypted
+ */
+export function getDecryptedFilename(encryptedFileName) {
+  // If filename doesn't look encrypted or is undefined, return it as is
+  if (!encryptedFileName || typeof encryptedFileName !== 'string' || !encryptedFileName.startsWith('U2FsdGVk')) {
+    return encryptedFileName;
+  }
+  
+  console.log('Decrypting filename for shared files section:', encryptedFileName.substring(0, 30) + '...');
+  
+  // Try all available methods to get a decrypted filename
+  
+  // 1. Check global original data
+  if (window.originalFileData && window.originalFileData.fileName) {
+    console.log('Using window.originalFileData.fileName for shared files section');
+    return window.originalFileData.fileName;
+  }
+  
+  // 2. Check shared file original data
+  const currentSharedFile = getSharedFile();
+  if (currentSharedFile && currentSharedFile._originalData && 
+      currentSharedFile._originalData.fileName) {
+    console.log('Using sharedFile._originalData.fileName for shared files section');
+    return currentSharedFile._originalData.fileName;
+  }
+  
+  // 3. If sharedFile has _displayFileName, use it
+  if (currentSharedFile && currentSharedFile._displayFileName) {
+    console.log('Using sharedFile._displayFileName for shared files section');
+    return currentSharedFile._displayFileName;
+  }
+  
+  // 4. Try direct decryption
+  try {
+    const sessionData = Session.getCurrentSession();
+    if (sessionData && sessionData.passphrase) {
+      const tempObj = { type: 'file', fileName: encryptedFileName };
+      const decrypted = decryptClipboardContent(tempObj, sessionData.passphrase);
+      if (decrypted && decrypted.fileName) {
+        console.log('Successfully decrypted filename for shared files section');
+        return decrypted.fileName;
+      }
+    }
+  } catch (err) {
+    console.error('Error decrypting filename for shared files section:', err);
+  }
+  
+  // If all methods fail, return a fallback
+  return "Encrypted File";
+}
+
 // Export ContentHandlers to window for global access
 // This allows direct access from file-operations.js
 window.ContentHandlers = {
@@ -584,7 +638,8 @@ window.ContentHandlers = {
   handleTextContent,
   handleImageContent,
   handleFileContent,
-  getDisplayFileData
+  getDisplayFileData,
+  getDecryptedFilename
 };
 
 // Log that the global export is ready

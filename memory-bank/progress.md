@@ -1,9 +1,9 @@
 # Progress: ClipShare
 
 ## Project Status
-Current project status: **Initial Implementation with Manual Clipboard Operations**
+Current project status: **Stable Chunked File Transfer Restored**
 
-The ClipShare application has been reimplemented with a simplified approach. The system now provides clipboard synchronization across devices using a manual copy/paste model instead of automatic monitoring. This reduces complexity and improves cross-OS compatibility.
+The ClipShare application has been reverted to a known stable state (commit bf27531) to restore the working chunked file transfer system. This reversion removed the socket.io-stream implementation that was causing Buffer-related errors in the browser environment. The system continues to provide clipboard synchronization across devices using a manual copy/paste model with end-to-end encryption.
 
 ## What Works
 
@@ -59,7 +59,8 @@ The ClipShare application has been reimplemented with a simplified approach. The
 - 🔄 Contributing guidelines
 
 ## Recent Milestones
-1. **Content Encryption Implementation (May 2, 2025)** - Added end-to-end encryption for all content (text, images, files) using session passphrase as encryption key
+1. **Repository Reversion to bf27531 (May 2, 2025)** - Reverted to commit bf27531 to restore the stable chunked file transfer system after socket.io-stream implementation caused browser compatibility issues
+2. **Content Encryption Implementation (May 2, 2025)** - Added end-to-end encryption for all content (text, images, files) using session passphrase as encryption key
 2. **Initial Repository Setup** - Project structure and dependencies
 2. **Server Implementation** - Express server with Socket.IO
 3. **Session Management** - Authentication and session handling

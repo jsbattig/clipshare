@@ -176,54 +176,29 @@ export function displayFileContent(fileData) {
   emptyFileState.classList.add('hidden');
   fileContainer.classList.remove('hidden');
   
-  // PRIORITY 1: Use _displayFileName if available
-  // PRIORITY 2: Use window.originalFileData if available
-  // PRIORITY 3: Use regular fileName
-  let displayFileName;
+  // Set up priority order for display filename
+  // This prioritizes non-encrypted sources but avoids explicit encryption detection
+  let displayFileName = 'Unknown file';
   
+  // PRIORITY 1: Use _displayFileName if available (should be pre-decrypted)
   if (fileData._displayFileName) {
     displayFileName = fileData._displayFileName;
     console.log('UI using _displayFileName for display:', displayFileName);
-  } 
+  }
+  // PRIORITY 2: Use window.originalFileData if available (also pre-decrypted)
   else if (window.originalFileData && window.originalFileData.fileName) {
     displayFileName = window.originalFileData.fileName;
     console.log('UI using window.originalFileData.fileName for display:', displayFileName);
   }
+  // PRIORITY 3: Use _originalData if available
+  else if (fileData._originalData && fileData._originalData.fileName) {
+    displayFileName = fileData._originalData.fileName;
+    console.log('UI using fileData._originalData.fileName for display');
+  }
+  // PRIORITY 4: Use raw fileName (may need post-processing)
   else if (fileData.fileName) {
-    // Check if the filename is still encrypted
-    if (fileData.fileName.startsWith('U2FsdGVk')) {
-      console.log('WARNING: Filename appears encrypted in UI display:', fileData.fileName.substring(0, 30) + '...');
-      displayFileName = 'Encrypted file'; // Fallback display name
-      
-      // Try to decrypt it here as a last resort
-      try {
-        const sessionImport = window.Session || null;
-        if (sessionImport) {
-          const sessionData = sessionImport.getCurrentSession();
-          if (sessionData && sessionData.passphrase) {
-            // Try to decrypt using window.decryptClipboardContent if available
-            if (window.decryptClipboardContent) {
-              const tempObj = {
-                type: 'file',
-                fileName: fileData.fileName
-              };
-              const decrypted = window.decryptClipboardContent(tempObj, sessionData.passphrase);
-              if (decrypted && decrypted.fileName) {
-                displayFileName = decrypted.fileName;
-                console.log('UI last-resort decryption successful:', displayFileName);
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.error('UI last-resort filename decryption failed:', err);
-      }
-    } else {
-      // Not encrypted, use as is
-      displayFileName = fileData.fileName;
-    }
-  } else {
-    displayFileName = 'Unknown file';
+    displayFileName = fileData.fileName;
+    console.log('UI using raw fileName for display, might need decryption');
   }
   
   // Update file info if elements exist
@@ -474,25 +449,37 @@ export function toggleDevicesPanel() {
   }
 }
 
+// Flag to prevent recursive observer calls
+let isDecryptingFilename = false;
+let filenameObserver = null;
+
 /**
  * Ensure filename displayed in the UI is decrypted
- * Checks DOM elements for encrypted filenames and attempts to decrypt them
+ * Decrypts filename from all available sources without redundant checking
  */
 export function ensureDecryptedFilenameDisplay() {
+  // Prevent recursive calls
+  if (isDecryptingFilename) return;
+  
   const fileNameEl = getElement('clipboard-file-name');
   if (!fileNameEl) return;
   
-  const currentText = fileNameEl.textContent;
+  // Set the flag to prevent recursion
+  isDecryptingFilename = true;
   
-  // Check if this looks like an encrypted filename (starts with the AES marker "U2FsdGVk")
-  if (currentText && typeof currentText === 'string' && currentText.startsWith('U2FsdGVk')) {
-    console.log('Post-render encrypted filename detection:', currentText.substring(0, 30) + '...');
+  // Temporarily disconnect observer if it exists
+  if (filenameObserver) {
+    filenameObserver.disconnect();
+  }
+  
+  try {
+    const currentText = fileNameEl.textContent;
     
-    // Try three approaches to decrypt
+    // Don't double-check if it's encrypted, just try all decryption approaches in order
     
     // APPROACH 1: Try using window.originalFileData if available
     if (window.originalFileData && window.originalFileData.fileName) {
-      console.log('Using originalFileData.fileName for post-render decryption');
+      console.log('Using originalFileData.fileName for decryption');
       fileNameEl.textContent = window.originalFileData.fileName;
       return;
     }
@@ -501,52 +488,40 @@ export function ensureDecryptedFilenameDisplay() {
     if (window.ContentHandlers && window.ContentHandlers.getSharedFile) {
       const sharedFile = window.ContentHandlers.getSharedFile();
       if (sharedFile && sharedFile._originalData && sharedFile._originalData.fileName) {
-        console.log('Using sharedFile._originalData.fileName for post-render decryption');
+        console.log('Using sharedFile._originalData.fileName for decryption');
         fileNameEl.textContent = sharedFile._originalData.fileName;
         return;
       }
     }
     
-    // APPROACH 3: Try decrypting directly if window.decryptData is available
+    // APPROACH 3: Try direct decryption only if we have to (avoid when possible)
     if (window.decryptData && window.Session) {
       try {
         const sessionData = window.Session.getCurrentSession();
         if (sessionData && sessionData.passphrase) {
           const decryptedName = window.decryptData(currentText, sessionData.passphrase);
-          if (decryptedName && typeof decryptedName === 'string' && !decryptedName.startsWith('U2FsdGVk')) {
-            console.log('Direct decryption successful in post-render check:', decryptedName);
+          if (decryptedName && typeof decryptedName === 'string') {
+            console.log('Direct decryption successful');
             fileNameEl.textContent = decryptedName;
             return;
           }
         }
       } catch (err) {
-        console.error('Error in post-render direct decryption:', err);
+        console.error('Error in direct decryption:', err);
       }
     }
-    
-    // APPROACH 4: Last resort - try decrypting via decryptClipboardContent
-    if (window.decryptClipboardContent && window.Session) {
-      try {
-        const sessionData = window.Session.getCurrentSession();
-        if (sessionData && sessionData.passphrase) {
-          const tempObj = {
-            type: 'file',
-            fileName: currentText
-          };
-          
-          const decrypted = window.decryptClipboardContent(tempObj, sessionData.passphrase);
-          if (decrypted && decrypted.fileName && !decrypted.fileName.startsWith('U2FsdGVk')) {
-            console.log('decryptClipboardContent successful in post-render:', decrypted.fileName);
-            fileNameEl.textContent = decrypted.fileName;
-            return;
-          }
-        }
-      } catch (err) {
-        console.error('Error in post-render decryptClipboardContent:', err);
-      }
+  } finally {
+    // Always reconnect the observer and reset the flag, even if errors occur
+    if (filenameObserver && fileNameEl) {
+      filenameObserver.observe(fileNameEl, { 
+        childList: true, 
+        characterData: true,
+        subtree: true
+      });
     }
     
-    console.warn('All post-render decryption approaches failed, leaving encrypted filename');
+    // Reset the flag
+    isDecryptingFilename = false;
   }
 }
 
@@ -554,6 +529,67 @@ export function ensureDecryptedFilenameDisplay() {
  * Set up observer to catch direct DOM updates to file name
  * This ensures encrypted filenames are decrypted even when set by other code paths
  */
+// Flag to prevent recursive observer calls for the shared files section
+let isProcessingSharedFiles = false;
+let sharedFilesObserver = null;
+
+/**
+ * Set up an observer for the shared files section to decrypt filenames
+ */
+export function setupSharedFilesObserver() {
+  // The file container in the "Shared Files" section
+  const fileContainer = document.querySelector('.file-sharing-section');
+  if (!fileContainer) {
+    console.warn('Shared files section not found, observer not set up');
+    return;
+  }
+  
+  console.log('Setting up observer for shared files section');
+  
+  // Create a new MutationObserver to watch for changes
+  sharedFilesObserver = new MutationObserver((mutations) => {
+    // Don't process if we're already handling a change
+    if (isProcessingSharedFiles) return;
+    
+    // Set processing flag to prevent recursive calls
+    isProcessingSharedFiles = true;
+    
+    try {
+      // Find any elements with encrypted filenames
+      const encryptedElements = fileContainer.querySelectorAll('.file-sharing-section .file-name, .file-sharing-section h2, .file-sharing-section h3');
+      
+      // Check each element for encrypted content
+      encryptedElements.forEach(element => {
+        const content = element.textContent;
+        if (content && content.startsWith('U2FsdGVk')) {
+          console.log('Found encrypted filename in shared files section:', content.substring(0, 20) + '...');
+          
+          // Use our helper function to decrypt
+          if (window.ContentHandlers && window.ContentHandlers.getDecryptedFilename) {
+            const decryptedName = window.ContentHandlers.getDecryptedFilename(content);
+            if (decryptedName && decryptedName !== content) {
+              console.log('Decrypted shared files filename to:', decryptedName);
+              element.textContent = decryptedName;
+            }
+          }
+        }
+      });
+    } finally {
+      // Always reset the processing flag
+      isProcessingSharedFiles = false;
+    }
+  });
+  
+  // Begin observing with these configuration options
+  sharedFilesObserver.observe(fileContainer, {
+    childList: true,
+    characterData: true,
+    subtree: true
+  });
+  
+  return sharedFilesObserver;
+}
+
 export function setupFilenameObserver() {
   const fileNameEl = getElement('clipboard-file-name');
   if (!fileNameEl) return;
@@ -561,28 +597,32 @@ export function setupFilenameObserver() {
   console.log('Setting up filename observer for automatic decryption');
   
   // Create a new MutationObserver to watch for changes
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
+  filenameObserver = new MutationObserver((mutations) => {
+    // Don't do anything if we're currently processing
+    if (isDecryptingFilename) return;
+    
+    // Process only once per batch of mutations
+    let shouldProcess = false;
+    for (const mutation of mutations) {
       if (mutation.type === 'characterData' || mutation.type === 'childList') {
-        // Check if content looks encrypted
-        const content = fileNameEl.textContent;
-        if (content && content.startsWith('U2FsdGVk')) {
-          console.log('Observer detected encrypted filename:', content.substring(0, 30) + '...');
-          // Use our helper function to attempt decryption
-          ensureDecryptedFilenameDisplay();
-        }
+        shouldProcess = true;
+        break;
       }
-    });
+    }
+    
+    if (shouldProcess) {
+      ensureDecryptedFilenameDisplay();
+    }
   });
   
   // Begin observing the target node for configured mutations
-  observer.observe(fileNameEl, { 
+  filenameObserver.observe(fileNameEl, { 
     childList: true, 
     characterData: true,
     subtree: true
   });
   
-  return observer;
+  return filenameObserver;
 }
 
 /**

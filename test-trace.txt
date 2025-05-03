@@ -1,0 +1,1 @@
+ClipShare FileTransfer Test - This is a test file with specific content to trace through the system

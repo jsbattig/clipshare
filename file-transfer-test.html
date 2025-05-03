@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClipShare File Transfer Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            transition: all 0.3s;
+        }
+        .drop-zone.active {
+            border-color: #2196F3;
+            background-color: rgba(33, 150, 243, 0.1);
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .log-container {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 20px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        .log-entry.error {
+            color: #d32f2f;
+            background-color: rgba(211, 47, 47, 0.1);
+        }
+        .log-entry.success {
+            color: #388e3c;
+            background-color: rgba(56, 142, 60, 0.1);
+        }
+        .log-entry.info {
+            color: #0288d1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ClipShare File Transfer Test</h1>
+        <p>This page helps diagnose file transfer issues by monitoring the entire process.</p>
+        
+        <div class="drop-zone" id="dropZone">
+            <p>Drag & drop test file here</p>
+            <p>or</p>
+            <button id="selectFileBtn">Select File</button>
+            <button id="testFileBtn">Use Test File</button>
+        </div>
+        
+        <div class="log-container" id="logContainer"></div>
+    </div>
+
+    <script>
+        // Initialize variables
+        const dropZone = document.getElementById('dropZone');
+        const selectFileBtn = document.getElementById('selectFileBtn');
+        const testFileBtn = document.getElementById('testFileBtn');
+        const logContainer = document.getElementById('logContainer');
+        
+        // Track file data for testing
+        let currentFile = null;
+        
+        // Logging function
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(`${type.toUpperCase()}: ${message}`);
+        }
+        
+        // Set up drop zone event listeners
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('active');
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('active');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('active');
+            
+            if (e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                processFile(file);
+            }
+        });
+        
+        // Set up file select button
+        selectFileBtn.addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    const file = e.target.files[0];
+                    processFile(file);
+                }
+            });
+            input.click();
+        });
+        
+        // Set up test file button
+        testFileBtn.addEventListener('click', () => {
+            fetch('test-trace.txt')
+                .then(response => response.blob())
+                .then(blob => {
+                    const file = new File([blob], 'test-trace.txt', { type: 'text/plain' });
+                    processFile(file);
+                })
+                .catch(error => {
+                    log(`Error loading test file: ${error.message}`, 'error');
+                });
+        });
+        
+        // Process the selected file
+        function processFile(file) {
+            log(`Selected file: ${file.name} (${file.size} bytes, ${file.type})`, 'info');
+            currentFile = file;
+            
+            // Read file content
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                log(`File read successfully: ${e.target.result.length} bytes`, 'success');
+                
+                // Convert to data URL for sharing
+                readAsDataURL(file);
+            };
+            
+            reader.onerror = function() {
+                log(`Error reading file: ${reader.error}`, 'error');
+            };
+            
+            reader.readAsText(file);
+        }
+        
+        // Read file as data URL
+        function readAsDataURL(file) {
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                log(`File converted to Data URL: ${e.target.result.substring(0, 50)}...`, 'success');
+                
+                // Try to send to browser clipboard
+                sendToClipboard(file, e.target.result);
+            };
+            
+            reader.onerror = function() {
+                log(`Error converting file: ${reader.error}`, 'error');
+            };
+            
+            reader.readAsDataURL(file);
+        }
+        
+        // Send file to clipboard
+        async function sendToClipboard(file, dataUrl) {
+            try {
+                log(`Attempting to send to clipboard...`, 'info');
+                
+                const fileData = {
+                    type: 'file',
+                    fileName: file.name,
+                    fileSize: file.size,
+                    fileType: file.type,
+                    content: dataUrl,
+                    timestamp: Date.now()
+                };
+                
+                // Try writing to clipboard using ClipboardItem API
+                if (navigator.clipboard && window.ClipboardItem) {
+                    log(`Using modern clipboard API...`, 'info');
+                    
+                    const clipboardItem = new ClipboardItem({
+                        [file.type]: new Blob([file], {type: file.type})
+                    });
+                    
+                    await navigator.clipboard.write([clipboardItem]);
+                    log(`Successfully copied to clipboard using modern API`, 'success');
+                } else {
+                    log(`Modern clipboard API not available, using legacy method...`, 'info');
+                    
+                    // Create temporary text area
+                    const textArea = document.createElement('textarea');
+                    textArea.value = JSON.stringify(fileData);
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    
+                    const success = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    
+                    if (success) {
+                        log(`Copied to clipboard using legacy method`, 'success');
+                    } else {
+                        throw new Error('Legacy clipboard copy failed');
+                    }
+                }
+                
+                // Create a visual indicator that copy succeeded
+                const message = document.createElement('div');
+                message.textContent = 'File copied to clipboard!';
+                message.style.position = 'fixed';
+                message.style.top = '20px';
+                message.style.left = '50%';
+                message.style.transform = 'translateX(-50%)';
+                message.style.backgroundColor = '#4CAF50';
+                message.style.color = 'white';
+                message.style.padding = '10px 20px';
+                message.style.borderRadius = '4px';
+                message.style.zIndex = '9999';
+                
+                document.body.appendChild(message);
+                
+                setTimeout(() => {
+                    document.body.removeChild(message);
+                }, 3000);
+            } catch (error) {
+                log(`Error copying to clipboard: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
