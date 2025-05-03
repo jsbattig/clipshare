@@ -622,3 +622,10 @@ function getBrowserInfo() {
     externalIp: sessionData?.externalIp || '' // Include external IP from session data
   };
 }
+
+window.AuthModule = {
+  getSessionData,
+  saveSessionData,
+  clearSessionData,
+  getTabId
+};
