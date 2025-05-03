@@ -17,10 +17,32 @@ const AUTH_CONSTANTS = {
   AUTH_TIMEOUT: 30000, // 30 seconds timeout for verification
   STORAGE_KEY: CONFIG.storage.sessionKey,
   CLIENT_ID_KEY: "clipshare_client_identity",
-  DEBUG_MODE: true, // Enable debug logging
-  // Generate a unique tab ID that persists only for this tab
-  TAB_ID: `tab_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`
+  TAB_ID_KEY: "clipshare_tab_id",
+  DEBUG_MODE: true // Enable debug logging
 };
+
+function getOrCreateTabId() {
+  let tabId = sessionStorage.getItem(AUTH_CONSTANTS.TAB_ID_KEY);
+  
+  if (!tabId) {
+    // Generate a unique ID for this tab
+    tabId = `tab_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    sessionStorage.setItem(AUTH_CONSTANTS.TAB_ID_KEY, tabId);
+    
+    if (AUTH_CONSTANTS.DEBUG_MODE) {
+      console.log(`Generated new tab ID: ${tabId}`);
+    }
+  } else if (AUTH_CONSTANTS.DEBUG_MODE) {
+    console.log(`Using existing tab ID: ${tabId}`);
+  }
+  
+  return tabId;
+}
+
+// Get the tab-specific ID
+function getTabId() {
+  return getOrCreateTabId();
+}
 
 // Generate or retrieve a permanent client ID that persists across page loads
 function getOrCreateClientId() {
@@ -446,7 +468,7 @@ function decryptVerification(encrypted, passphrase) {
  * @returns {string} Tab-specific storage key
  */
 function getTabSpecificStorageKey(sessionId = '') {
-  return `${AUTH_CONSTANTS.STORAGE_KEY}_${AUTH_CONSTANTS.TAB_ID}${sessionId ? '_' + sessionId : ''}`;
+  return `${AUTH_CONSTANTS.STORAGE_KEY}_${getTabId()}${sessionId ? '_' + sessionId : ''}`;
 }
 
 /**
@@ -482,7 +504,7 @@ export function getSessionData() {
   if (!data) {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith(`${AUTH_CONSTANTS.STORAGE_KEY}_${AUTH_CONSTANTS.TAB_ID}`)) {
+      if (key && key.startsWith(`${AUTH_CONSTANTS.STORAGE_KEY}_${getTabId()}`)) {
         data = localStorage.getItem(key);
         if (data) {
           if (AUTH_CONSTANTS.DEBUG_MODE) {
@@ -511,7 +533,7 @@ export function clearSessionData() {
   // Remove all localStorage items that match our tab ID pattern
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && key.startsWith(`${AUTH_CONSTANTS.STORAGE_KEY}_${AUTH_CONSTANTS.TAB_ID}`)) {
+    if (key && key.startsWith(`${AUTH_CONSTANTS.STORAGE_KEY}_${getTabId()}`)) {
       localStorage.removeItem(key);
       if (AUTH_CONSTANTS.DEBUG_MODE) {
         console.log(`Cleared session data with key: ${key}`);
