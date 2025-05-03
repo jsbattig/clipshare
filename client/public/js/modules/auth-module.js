@@ -17,7 +17,9 @@ const AUTH_CONSTANTS = {
   AUTH_TIMEOUT: 30000, // 30 seconds timeout for verification
   STORAGE_KEY: CONFIG.storage.sessionKey,
   CLIENT_ID_KEY: "clipshare_client_identity",
-  DEBUG_MODE: true // Enable debug logging
+  DEBUG_MODE: true, // Enable debug logging
+  // Generate a unique tab ID that persists only for this tab
+  TAB_ID: `tab_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`
 };
 
 // Generate or retrieve a permanent client ID that persists across page loads
@@ -439,7 +441,16 @@ function decryptVerification(encrypted, passphrase) {
 }
 
 /**
- * Save session data to localStorage
+ * Get tab-specific storage key for a session
+ * @param {string} sessionId - Optional session ID to include in the key
+ * @returns {string} Tab-specific storage key
+ */
+function getTabSpecificStorageKey(sessionId = '') {
+  return `${AUTH_CONSTANTS.STORAGE_KEY}_${AUTH_CONSTANTS.TAB_ID}${sessionId ? '_' + sessionId : ''}`;
+}
+
+/**
+ * Save session data to localStorage with tab-specific key
  * @param {string} sessionId - Session identifier
  * @param {string} passphrase - Secret passphrase
  * @param {string} clientName - Client name for identification (optional)
@@ -451,15 +462,38 @@ export function saveSessionData(sessionId, passphrase, clientName = '') {
     timestamp: Date.now(),
     clientName: clientName || ''
   };
-  localStorage.setItem(AUTH_CONSTANTS.STORAGE_KEY, JSON.stringify(sessionData));
+  
+  const storageKey = getTabSpecificStorageKey(sessionId);
+  localStorage.setItem(storageKey, JSON.stringify(sessionData));
+  
+  if (AUTH_CONSTANTS.DEBUG_MODE) {
+    console.log(`Saved session data with tab-specific key: ${storageKey}`);
+  }
 }
 
 /**
- * Get session data from localStorage
+ * Get session data from localStorage using tab-specific key
  * @returns {Object|null} Session data or null if not found
  */
 export function getSessionData() {
-  const data = localStorage.getItem(AUTH_CONSTANTS.STORAGE_KEY);
+  const tabSpecificKey = getTabSpecificStorageKey();
+  let data = localStorage.getItem(tabSpecificKey);
+  
+  if (!data) {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`${AUTH_CONSTANTS.STORAGE_KEY}_${AUTH_CONSTANTS.TAB_ID}`)) {
+        data = localStorage.getItem(key);
+        if (data) {
+          if (AUTH_CONSTANTS.DEBUG_MODE) {
+            console.log(`Found session data with key: ${key}`);
+          }
+          break;
+        }
+      }
+    }
+  }
+  
   if (!data) return null;
   
   try {
@@ -471,10 +505,20 @@ export function getSessionData() {
 }
 
 /**
- * Clear session data from localStorage
+ * Clear session data from localStorage for this tab only
  */
 export function clearSessionData() {
-  localStorage.removeItem(AUTH_CONSTANTS.STORAGE_KEY);
+  // Remove all localStorage items that match our tab ID pattern
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(`${AUTH_CONSTANTS.STORAGE_KEY}_${AUTH_CONSTANTS.TAB_ID}`)) {
+      localStorage.removeItem(key);
+      if (AUTH_CONSTANTS.DEBUG_MODE) {
+        console.log(`Cleared session data with key: ${key}`);
+      }
+      i--; // Adjust index since we removed an item
+    }
+  }
 }
 
 /**
