@@ -149,7 +149,7 @@ function setupFileEvents() {
         // Directly call handleSingleFileUpload with the raw File object
         console.log('File selected via dialog:', files[0].name);
         UIManager.displayMessage(`Processing file: ${files[0].name}...`, 'info', 0);
-        FileOperations.handleSingleFileUpload(files[0], handleSingleFileUpload);
+        FileOperations.handleSingleFileUpload(files[0], processSingleFileCallback);
       } else {
         console.log('Multiple files selected via dialog:', files.length);
         FileOperations.handleMultipleFiles(files, handleMultipleFilesSelected);
@@ -287,6 +287,14 @@ function handleTextareaInput() {
   } else {
     UIManager.updateSyncStatus('Failed to send - check connection');
   }
+}
+
+/**
+ * Callback function for processed single file
+ * @param {Object} fileData - Processed file data
+ */
+function processSingleFileCallback(fileData) {
+  handleSingleFileUpload(fileData);
 }
 
 /**
