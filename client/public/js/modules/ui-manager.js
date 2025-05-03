@@ -623,6 +623,48 @@ export function setupSharedFilesObserver() {
     subtree: true
   });
   
+  // Process existing elements immediately (don't wait for mutations)
+  const filenameElements = fileContainer.querySelectorAll('.file-name, h2, h3, .banner-message');
+  console.log('Processing existing filename elements on page load:', filenameElements.length);
+  
+  filenameElements.forEach(element => {
+    const content = element.textContent;
+    
+    if (!content || element.hasAttribute('data-decrypted')) {
+      return;
+    }
+    
+    const needsDecryption = content.startsWith('U2FsdGVk');
+    if (!needsDecryption) {
+      element.setAttribute('data-decrypted', 'true');
+      return;
+    }
+    
+    console.log('Found existing encrypted filename:', content.substring(0, 20) + '...');
+    
+    let decryptedSuccessfully = false;
+    
+    // APPROACH 1: Try using window.originalFileData (highest priority)
+    if (window.originalFileData && window.originalFileData.fileName) {
+      console.log('Using originalFileData.fileName for decryption:', window.originalFileData.fileName);
+      element.textContent = window.originalFileData.fileName;
+      decryptedSuccessfully = true;
+    }
+    // APPROACH 2: Use ContentHandlers.getDecryptedFilename as fallback
+    else if (window.ContentHandlers && window.ContentHandlers.getDecryptedFilename) {
+      const decryptedName = window.ContentHandlers.getDecryptedFilename(content);
+      if (decryptedName && decryptedName !== content) {
+        console.log('Decrypted existing filename to:', decryptedName);
+        element.textContent = decryptedName;
+        decryptedSuccessfully = true;
+      }
+    }
+    
+    if (decryptedSuccessfully) {
+      element.setAttribute('data-decrypted', 'true');
+    }
+  });
+  
   return sharedFilesObserver;
 }
 
