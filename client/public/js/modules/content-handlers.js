@@ -114,7 +114,17 @@ export function handleFileContent(fileData) {
   // Create a display-friendly copy of the file data
   const displayData = {...fileData};
   
-  // PRIORITY 1: Check if the file has a pre-decrypted display filename
+  // SIMPLIFY: Always use window.originalFileData.fileName if available (our single source of truth)
+  if (window.originalFileData && window.originalFileData.fileName) {
+    console.log('Using originalFileData.fileName as single source of truth:', window.originalFileData.fileName);
+    displayData.fileName = window.originalFileData.fileName;
+    UIManager.displayFileContent(displayData);
+    return;
+  }
+  
+  // FALLBACKS in priority order if window.originalFileData is not available:
+  
+  // 1. Check if the file has a pre-decrypted display filename
   if (fileData._displayFileName) {
     console.log('Using pre-defined _displayFileName for display:', fileData._displayFileName);
     displayData.fileName = fileData._displayFileName;
@@ -122,60 +132,12 @@ export function handleFileContent(fileData) {
     return;
   }
   
-  // PRIORITY 2: Check if we're on the sender side or have original data
-  if ((fileData._originalData && fileData._originalData.fileName) || window.originalFileData) {
-    console.log('Sender-side file detected or original data available');
-    
-    // Use the best available original filename
-    if (fileData._originalData && fileData._originalData.fileName) {
-      displayData.fileName = fileData._originalData.fileName;
-    } else if (window.originalFileData && window.originalFileData.fileName) {
-      displayData.fileName = window.originalFileData.fileName;
-    }
-    
-    console.log('Using original filename for display:', displayData.fileName);
+  // 2. Check if we have original data in the file object
+  if (fileData._originalData && fileData._originalData.fileName) {
+    console.log('Using _originalData.fileName from file object:', fileData._originalData.fileName);
+    displayData.fileName = fileData._originalData.fileName;
     UIManager.displayFileContent(displayData);
     return;
-  }
-  
-  // PRIORITY 3: For receiver side - check if globalFileData exists
-  // This is used when file was received via chunks and fully decrypted on receipt
-  if (fileData.fileName && fileData.fileName.startsWith('U2FsdGVk') && window.originalFileData) {
-    console.log('Using window.originalFileData for receiver-side display');
-    displayData.fileName = window.originalFileData.fileName;
-    displayData._displayFileName = window.originalFileData.fileName;
-    UIManager.displayFileContent(displayData);
-    return;
-  }
-  
-  // PRIORITY 4: For receiver side - try to decrypt the filename
-  if (fileData.fileName && fileData.fileName.startsWith('U2FsdGVk')) {
-    console.log('Attempting to decrypt filename for display:', fileData.fileName.substring(0, 30) + '...');
-    
-    try {
-      // Get session data for decryption
-      const sessionData = Session.getCurrentSession();
-      if (sessionData && sessionData.passphrase) {
-        // Try to decrypt the filename
-        const tempObj = {
-          type: 'file',
-          fileName: fileData.fileName
-        };
-        
-        const decrypted = decryptClipboardContent(tempObj, sessionData.passphrase);
-        if (decrypted && decrypted.fileName) {
-          displayData.fileName = decrypted.fileName;
-          displayData._displayFileName = decrypted.fileName; // Store for future use
-          console.log('Successfully decrypted filename for UI display:', displayData.fileName);
-          
-          UIManager.displayFileContent(displayData);
-          return;
-        }
-      }
-    } catch (err) {
-      console.error('Error decrypting filename for display:', err);
-      // Continue to fallback below - don't crash the app
-    }
   }
   
   // FALLBACK: If we get here, use whatever filename we have
@@ -577,53 +539,35 @@ export function setSharedFile(fileData) {
  * @param {string} encryptedFileName - Potentially encrypted filename
  * @returns {string} Decrypted filename or original if already decrypted
  */
-export function getDecryptedFilename(encryptedFileName) {
-  // If filename doesn't look encrypted or is undefined, return it as is
-  if (!encryptedFileName || typeof encryptedFileName !== 'string' || !encryptedFileName.startsWith('U2FsdGVk')) {
-    return encryptedFileName;
-  }
-  
-  console.log('Decrypting filename for shared files section:', encryptedFileName.substring(0, 30) + '...');
-  
-  // Try all available methods to get a decrypted filename
-  
-  // 1. Check global original data
+/**
+ * Get the best filename to display, always using window.originalFileData as the single source of truth
+ * @param {string} fileName - Input filename (potentially encrypted)
+ * @returns {string} The best available filename from our single source of truth
+ */
+export function getDecryptedFilename(fileName) {
+  // SIMPLEST APPROACH: Always use window.originalFileData if available (our single source of truth)
   if (window.originalFileData && window.originalFileData.fileName) {
-    console.log('Using window.originalFileData.fileName for shared files section');
+    console.log('getDecryptedFilename: Using originalFileData.fileName as source of truth:', window.originalFileData.fileName);
     return window.originalFileData.fileName;
   }
   
-  // 2. Check shared file original data
+  // If we don't have window.originalFileData, try the shared file 
   const currentSharedFile = getSharedFile();
-  if (currentSharedFile && currentSharedFile._originalData && 
-      currentSharedFile._originalData.fileName) {
-    console.log('Using sharedFile._originalData.fileName for shared files section');
-    return currentSharedFile._originalData.fileName;
-  }
   
-  // 3. If sharedFile has _displayFileName, use it
+  // Check for pre-decrypted display filename
   if (currentSharedFile && currentSharedFile._displayFileName) {
-    console.log('Using sharedFile._displayFileName for shared files section');
+    console.log('getDecryptedFilename: Using _displayFileName:', currentSharedFile._displayFileName);
     return currentSharedFile._displayFileName;
   }
   
-  // 4. Try direct decryption
-  try {
-    const sessionData = Session.getCurrentSession();
-    if (sessionData && sessionData.passphrase) {
-      const tempObj = { type: 'file', fileName: encryptedFileName };
-      const decrypted = decryptClipboardContent(tempObj, sessionData.passphrase);
-      if (decrypted && decrypted.fileName) {
-        console.log('Successfully decrypted filename for shared files section');
-        return decrypted.fileName;
-      }
-    }
-  } catch (err) {
-    console.error('Error decrypting filename for shared files section:', err);
+  // Check for original data
+  if (currentSharedFile && currentSharedFile._originalData && currentSharedFile._originalData.fileName) {
+    console.log('getDecryptedFilename: Using _originalData.fileName:', currentSharedFile._originalData.fileName);
+    return currentSharedFile._originalData.fileName;
   }
   
-  // If all methods fail, return a fallback
-  return "Encrypted File";
+  // Return the input filename as last resort
+  return fileName || "Unknown file";
 }
 
 // Export ContentHandlers to window for global access
