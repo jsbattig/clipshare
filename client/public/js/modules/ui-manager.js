@@ -556,7 +556,7 @@ export function setupSharedFilesObserver() {
     
     try {
       // Find any elements with encrypted filenames
-      const encryptedElements = fileContainer.querySelectorAll('.file-sharing-section .file-name, .file-sharing-section h2, .file-sharing-section h3');
+      const encryptedElements = fileContainer.querySelectorAll('.file-sharing-section .file-name, .file-sharing-section h2, .file-sharing-section h3, .file-sharing-section .banner-message');
       
       // Check each element for encrypted content
       encryptedElements.forEach(element => {
