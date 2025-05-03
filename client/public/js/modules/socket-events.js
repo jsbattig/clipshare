@@ -884,6 +884,29 @@ function processReceivedFile(fileData) {
   } catch (error) {
     console.error('Error processing received file:', error);
     
+    // Even if full decryption failed, try to at least decrypt the filename for display
+    if (fileData.fileName && fileData.fileName.startsWith('U2FsdGVk')) {
+      try {
+        const sessionData = Session.getCurrentSession();
+        if (sessionData && sessionData.passphrase) {
+          const tempObject = {
+            type: 'file',
+            fileName: fileData.fileName
+          };
+          
+          const decrypted = decryptClipboardContent(tempObject, sessionData.passphrase);
+          if (decrypted && decrypted.fileName) {
+            console.log('Partial filename decryption successful:', decrypted.fileName);
+            
+            // Store decrypted filename for display
+            fileData._displayFileName = decrypted.fileName;
+          }
+        }
+      } catch (err) {
+        console.error('Partial filename decryption failed:', err);
+      }
+    }
+    
     // Still try to handle the file even if decryption failed
     if (fileUpdateCallback) {
       fileUpdateCallback(fileData);
