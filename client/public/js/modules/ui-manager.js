@@ -551,7 +551,7 @@ export function setupSharedFilesObserver() {
     
     try {
       // Find all filename elements in the shared files section
-      const filenameElements = fileContainer.querySelectorAll('.file-sharing-section .file-name, .file-sharing-section h2, .file-sharing-section h3, .file-sharing-section .banner-message');
+      const filenameElements = fileContainer.querySelectorAll('.file-name, h2, h3, .banner-message');
       
       let madeChanges = false;
       
