@@ -112,6 +112,12 @@ function initializeApp() {
       sessionNameEl.textContent = sessionData.sessionId;
     }
     
+    // Update client name display
+    const clientNameEl = Utils.getElement('client-name-display');
+    if (clientNameEl && sessionData.clientName) {
+      clientNameEl.textContent = `(${sessionData.clientName})`;
+    }
+    
     // Initialize socket events with callbacks
     SocketEvents.init(socket, {
       onClipboardUpdate: (content, sendToServer) => {
