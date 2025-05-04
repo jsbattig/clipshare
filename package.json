@@ -23,6 +23,8 @@
     "jszip": "^3.10.1"
   },
   "devDependencies": {
-    "nodemon": "^2.0.22"
+    "nodemon": "^2.0.22",
+    "playwright": "^1.52.0",
+    "puppeteer": "^24.8.0"
   }
 }

@@ -274,10 +274,7 @@ function handleClipboardBroadcast(data) {
  * @param {Object} fileData - File data
  */
 function handleFileBroadcast(fileData) {
-  // Skip if this update originated from this client
-  if (fileData.originClient === socket.id) {
-    return;
-  }
+  if (fileData.originClient === socket.id) return;
   
   // Always log what we received without exposing sensitive content
   console.log('Received shared file from other client');
