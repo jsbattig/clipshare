@@ -197,8 +197,40 @@ export function displayFileContent(fileData) {
   }
   // PRIORITY 4: Use raw fileName (may need post-processing)
   else if (fileData.fileName) {
-    displayFileName = fileData.fileName;
-    console.log('UI using raw fileName for display, might need decryption');
+    if (fileData.fileName.startsWith('U2FsdGVk')) {
+      console.log('Detected encrypted filename in displayFileContent, attempting to decrypt');
+      try {
+        const sessionData = window.Session.getCurrentSession();
+        if (sessionData && sessionData.passphrase) {
+          // Create a mini-object just for decrypting the filename
+          const filenamePart = {
+            type: 'file',
+            fileName: fileData.fileName
+          };
+          
+          const decrypted = window.decryptClipboardContent(filenamePart, sessionData.passphrase);
+          
+          if (decrypted && decrypted.fileName) {
+            displayFileName = decrypted.fileName;
+            console.log('Successfully decrypted filename in displayFileContent:', displayFileName);
+            
+            fileData._displayFileName = displayFileName;
+          } else {
+            displayFileName = fileData.fileName;
+            console.log('Failed to decrypt filename in displayFileContent');
+          }
+        } else {
+          displayFileName = fileData.fileName;
+          console.log('No session data available for decryption in displayFileContent');
+        }
+      } catch (err) {
+        console.error('Error decrypting filename in displayFileContent:', err);
+        displayFileName = fileData.fileName;
+      }
+    } else {
+      displayFileName = fileData.fileName;
+      console.log('UI using raw fileName for display (not encrypted):', displayFileName);
+    }
   }
   
   // Update file info if elements exist
@@ -206,16 +238,15 @@ export function displayFileContent(fileData) {
   if (fileSizeEl) fileSizeEl.textContent = formatFileSize(fileData.fileSize || 0);
   if (fileMimeEl) fileMimeEl.textContent = fileData.fileType || 'unknown/type';
   
-// Set file extension in icon if we can determine it
-if (fileTypeIcon && displayFileName) {
-  const extension = displayFileName.split('.').pop().toLowerCase();
-  if (extension) {
-    fileTypeIcon.setAttribute('data-extension', extension);
-  } else {
-    fileTypeIcon.removeAttribute('data-extension');
+  // Set file extension in icon if we can determine it
+  if (fileTypeIcon && displayFileName) {
+    const extension = displayFileName.split('.').pop().toLowerCase();
+    if (extension) {
+      fileTypeIcon.setAttribute('data-extension', extension);
+    } else {
+      fileTypeIcon.removeAttribute('data-extension');
+    }
   }
-}
-
 }
 
 /**
@@ -622,6 +653,80 @@ export function setupSharedFilesObserver() {
     characterData: true,
     subtree: true
   });
+  
+  // Process existing elements immediately (don't wait for mutations)
+  const filenameElements = fileContainer.querySelectorAll('.file-name, h2, h3, .banner-message');
+  console.log('Processing existing filename elements on page load:', filenameElements.length);
+  
+  // Function to process a single element for decryption
+  const processElement = (element) => {
+    const content = element.textContent;
+    
+    if (!content || element.hasAttribute('data-decrypted')) {
+      return false;
+    }
+    
+    const needsDecryption = content.startsWith('U2FsdGVk');
+    if (!needsDecryption) {
+      element.setAttribute('data-decrypted', 'true');
+      return false;
+    }
+    
+    console.log('Found encrypted filename:', content.substring(0, 20) + '...');
+    
+    let decryptedSuccessfully = false;
+    
+    // APPROACH 1: Try using window.originalFileData (highest priority)
+    if (window.originalFileData && window.originalFileData.fileName) {
+      console.log('Using originalFileData.fileName for decryption:', window.originalFileData.fileName);
+      element.textContent = window.originalFileData.fileName;
+      decryptedSuccessfully = true;
+    }
+    // APPROACH 2: Use ContentHandlers.getDecryptedFilename as fallback
+    else if (window.ContentHandlers && window.ContentHandlers.getDecryptedFilename) {
+      const decryptedName = window.ContentHandlers.getDecryptedFilename(content);
+      if (decryptedName && decryptedName !== content) {
+        console.log('Decrypted filename to:', decryptedName);
+        element.textContent = decryptedName;
+        decryptedSuccessfully = true;
+      }
+    }
+    
+    if (decryptedSuccessfully) {
+      element.setAttribute('data-decrypted', 'true');
+      return true;
+    }
+    
+    return false;
+  };
+  
+  // Process all existing elements
+  filenameElements.forEach(processElement);
+  
+  // Set up a periodic check for elements that need decryption
+  const periodicCheck = () => {
+    const elements = fileContainer.querySelectorAll('.file-name, h2, h3, .banner-message');
+    let anyDecrypted = false;
+    
+    elements.forEach(element => {
+      if (processElement(element)) {
+        anyDecrypted = true;
+      }
+    });
+    
+    if (anyDecrypted) {
+      console.log('Periodic check decrypted one or more filenames');
+    }
+  };
+  
+  let checkCount = 0;
+  const checkInterval = setInterval(() => {
+    periodicCheck();
+    checkCount++;
+    if (checkCount >= 10) {
+      clearInterval(checkInterval);
+    }
+  }, 1000);
   
   return sharedFilesObserver;
 }
