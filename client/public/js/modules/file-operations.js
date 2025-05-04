@@ -214,7 +214,10 @@ async function processRawFileWithWorker(file, onFileProcessed) {
         if (typeof window.ContentHandlers !== 'undefined' && 
             typeof window.ContentHandlers.setSharedFile === 'function') {
           console.log('Directly setting shared file with original data in ContentHandlers');
-          window.ContentHandlers.setSharedFile(encryptedFileData);
+          // Create a decrypted version for local display
+          const displayFileData = {...encryptedFileData};
+          displayFileData.fileName = file.name; // Use clear text filename for display
+          window.ContentHandlers.setSharedFile(displayFileData);
         }
         
         // Call the callback
@@ -340,7 +343,10 @@ async function processLargeFileWithWorker(file, fileContent, onFileProcessed) {
         if (typeof window.ContentHandlers !== 'undefined' && 
             typeof window.ContentHandlers.setSharedFile === 'function') {
           console.log('Directly setting shared file with original data in ContentHandlers');
-          window.ContentHandlers.setSharedFile(encryptedFileData);
+          // Create a decrypted version for local display
+          const displayFileData = {...encryptedFileData};
+          displayFileData.fileName = file.name; // Use clear text filename for display
+          window.ContentHandlers.setSharedFile(displayFileData);
         }
         
         // Call the callback

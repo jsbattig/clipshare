@@ -140,6 +140,39 @@ export function handleFileContent(fileData) {
     return;
   }
   
+  // 3. Try to decrypt the filename if it's encrypted
+  if (displayData.fileName && displayData.fileName.startsWith('U2FsdGVk')) {
+    try {
+      console.log('Attempting to decrypt encrypted filename:', displayData.fileName.substring(0, 20) + '...');
+      const sessionData = window.Session.getCurrentSession();
+      if (sessionData && sessionData.passphrase) {
+        // Create a mini-object just for decrypting the filename
+        const filenamePart = {
+          type: 'file',
+          fileName: displayData.fileName
+        };
+        
+        const decrypted = window.decryptClipboardContent(filenamePart, sessionData.passphrase);
+        
+        if (decrypted && decrypted.fileName) {
+          console.log('Successfully decrypted filename in handleFileContent:', decrypted.fileName);
+          displayData.fileName = decrypted.fileName;
+          
+          // Store the decrypted filename for future reference
+          fileData._displayFileName = decrypted.fileName;
+          
+          if (!window.originalFileData) {
+            window.originalFileData = { fileName: decrypted.fileName };
+          } else {
+            window.originalFileData.fileName = decrypted.fileName;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error decrypting filename in handleFileContent:', err);
+    }
+  }
+  
   // FALLBACK: If we get here, use whatever filename we have
   console.log('Using fallback filename display method');
   UIManager.displayFileContent(displayData);
