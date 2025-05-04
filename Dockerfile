@@ -1,7 +1,7 @@
 # Multi-stage build for ClipShare application
 
 # Stage 1: Build and install dependencies
-FROM node:16-alpine AS build
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ RUN npm run install-all
 COPY . .
 
 # Stage 2: Create production image
-FROM node:16-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
