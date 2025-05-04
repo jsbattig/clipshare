@@ -169,78 +169,21 @@ export function displayFileContent(fileData) {
   const fileSizeEl = getElement('clipboard-file-size');
   const fileMimeEl = getElement('clipboard-file-mime');
   const fileTypeIcon = document.querySelector('.file-type-icon');
-  
+
   if (!fileContainer || !emptyFileState) return;
-  
-  // Update the file section UI
+
+  // Show file banner
   emptyFileState.classList.add('hidden');
   fileContainer.classList.remove('hidden');
-  
-  // Set up priority order for display filename
-  // This prioritizes non-encrypted sources but avoids explicit encryption detection
-  let displayFileName = 'Unknown file';
-  
-  // PRIORITY 1: Use _displayFileName if available (should be pre-decrypted)
-  if (fileData._displayFileName) {
-    displayFileName = fileData._displayFileName;
-    console.log('UI using _displayFileName for display:', displayFileName);
-  }
-  // PRIORITY 2: Use window.originalFileData if available (also pre-decrypted)
-  else if (window.originalFileData && window.originalFileData.fileName) {
-    displayFileName = window.originalFileData.fileName;
-    console.log('UI using window.originalFileData.fileName for display:', displayFileName);
-  }
-  // PRIORITY 3: Use _originalData if available
-  else if (fileData._originalData && fileData._originalData.fileName) {
-    displayFileName = fileData._originalData.fileName;
-    console.log('UI using fileData._originalData.fileName for display');
-  }
-  // PRIORITY 4: Use raw fileName (may need post-processing)
-  else if (fileData.fileName) {
-    if (fileData.fileName.startsWith('U2FsdGVk')) {
-      console.log('Detected encrypted filename in displayFileContent, attempting to decrypt');
-      try {
-        const sessionData = window.Session.getCurrentSession();
-        if (sessionData && sessionData.passphrase) {
-          // Create a mini-object just for decrypting the filename
-          const filenamePart = {
-            type: 'file',
-            fileName: fileData.fileName
-          };
-          
-          const decrypted = window.decryptClipboardContent(filenamePart, sessionData.passphrase);
-          
-          if (decrypted && decrypted.fileName) {
-            displayFileName = decrypted.fileName;
-            console.log('Successfully decrypted filename in displayFileContent:', displayFileName);
-            
-            fileData._displayFileName = displayFileName;
-          } else {
-            displayFileName = fileData.fileName;
-            console.log('Failed to decrypt filename in displayFileContent');
-          }
-        } else {
-          displayFileName = fileData.fileName;
-          console.log('No session data available for decryption in displayFileContent');
-        }
-      } catch (err) {
-        console.error('Error decrypting filename in displayFileContent:', err);
-        displayFileName = fileData.fileName;
-      }
-    } else {
-      displayFileName = fileData.fileName;
-      console.log('UI using raw fileName for display (not encrypted):', displayFileName);
-    }
-  }
-  
-  // Update file info if elements exist
-  if (fileNameEl) fileNameEl.textContent = displayFileName;
+
+  // Simply use decrypted filename provided in fileData
+  if (fileNameEl) fileNameEl.textContent = fileData.fileName;
   if (fileSizeEl) fileSizeEl.textContent = formatFileSize(fileData.fileSize || 0);
   if (fileMimeEl) fileMimeEl.textContent = fileData.fileType || 'unknown/type';
-  
-  // Set file extension in icon if we can determine it
-  if (fileTypeIcon && displayFileName) {
-    const extension = displayFileName.split('.').pop().toLowerCase();
+
+  // Apply file extension to icon
+  if (fileTypeIcon && fileData.fileName) {
+    const extension = fileData.fileName.split('.').pop().toLowerCase();
     if (extension) {
       fileTypeIcon.setAttribute('data-extension', extension);
     } else {

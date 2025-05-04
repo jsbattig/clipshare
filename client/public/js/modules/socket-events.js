@@ -99,9 +99,15 @@ function handleSuccessfulConnection(response) {
     clipboardUpdateCallback(response.clipboard, false);
   }
   
-  // Handle initial shared file if available
+  // Handle initial shared file if available (decrypt before display)
   if (response.sharedFile && fileUpdateCallback) {
-    fileUpdateCallback(response.sharedFile);
+    const sessionData = Session.getCurrentSession();
+    if (sessionData && sessionData.passphrase) {
+      const decryptedFile = decryptClipboardContent(response.sharedFile, sessionData.passphrase);
+      fileUpdateCallback(decryptedFile);
+    } else {
+      console.error('Cannot decrypt initial shared file: missing session passphrase');
+    }
   }
   
   // Update client count
